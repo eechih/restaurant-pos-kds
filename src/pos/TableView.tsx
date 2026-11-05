@@ -1,0 +1,483 @@
+import { useMemo, useState } from 'react';
+import { useAction, useApp } from '../appContext';
+import {
+  billTotal,
+  buildLine,
+  formatMoney,
+  isFullyVoided,
+  lineAmount,
+  missingRequiredGroups,
+  nextRound,
+  ticketsForCheck,
+  toggleChoice,
+  unitPriceOf,
+  unservedTickets,
+  voidId,
+  type GuestCheck,
+  type KitchenTicket,
+  type MenuItem,
+  type OptionSelection,
+  type PaymentMethod,
+  type TicketLine,
+  type TicketStatus,
+} from '../domain';
+import { LineDetails } from '../ui/LineDetails';
+import { Modal } from '../ui/Modal';
+
+const STATUS_LABEL: Record<TicketStatus, string> = {
+  NEW: '等待製作',
+  PREPARING: '製作中',
+  READY: '可上菜',
+  SERVED: '已上菜',
+};
+const VOID_REASONS = ['點錯', '客人取消', '缺料', '其他'];
+
+const goToFloor = () => {
+  window.location.hash = '#/pos';
+};
+
+export function TableView({ tableId }: { tableId: string }) {
+  const { catalog, live } = useApp();
+  const table = catalog.tables.find((candidate) => candidate.id === tableId);
+  const check = live.state.checks[live.state.seatings[tableId]?.checkId];
+
+  if (!table || !check) {
+    return (
+      <div className="seed-prompt">
+        <h1>{live.loaded ? '這桌目前沒有開桌' : '載入中…'}</h1>
+        {live.loaded && <button className="button" onClick={goToFloor}>回到桌位</button>}
+      </div>
+    );
+  }
+
+  const paid = check.status === 'PAID';
+  return (
+    <div className={paid ? 'table-view is-paid' : 'table-view'}>
+      {!paid && <MenuPanel check={check} />}
+      <BillPanel check={check} />
+    </div>
+  );
+}
+
+function MenuPanel({ check }: { check: GuestCheck }) {
+  const { catalog, drafts, setDraft } = useApp();
+  const [categoryId, setCategoryId] = useState(catalog.categories[0]?.id);
+  const [configuring, setConfiguring] = useState<MenuItem>();
+  const items = catalog.items.filter((item) => item.categoryId === categoryId);
+
+  const addLine = (line: TicketLine) => {
+    const draft = drafts[check.id] ?? { ticketId: crypto.randomUUID(), lines: [] };
+    setDraft(check.id, { ...draft, lines: [...draft.lines, line] });
+  };
+
+  return (
+    <section className="menu-panel" aria-label="菜單">
+      <div className="tabs" role="tablist">
+        {catalog.categories.map((category) => (
+          <button
+            key={category.id}
+            role="tab"
+            aria-selected={category.id === categoryId}
+            className={category.id === categoryId ? 'tab is-selected' : 'tab'}
+            onClick={() => setCategoryId(category.id)}
+          >
+            {category.name}
+          </button>
+        ))}
+      </div>
+      <div className="item-grid">
+        {items.map((item) => (
+          <button
+            key={item.id}
+            className="item-card"
+            onClick={() =>
+              item.optionGroups.length > 0
+                ? setConfiguring(item)
+                : addLine(buildLine(crypto.randomUUID(), item, {}, 1, ''))
+            }
+          >
+            <span className="item-name">{item.name}</span>
+            <span className="item-price">{formatMoney(item.price)}</span>
+            {item.optionGroups.length > 0 && <span className="item-hint">可選規格</span>}
+          </button>
+        ))}
+      </div>
+      {configuring && (
+        <ItemDialog
+          item={configuring}
+          onClose={() => setConfiguring(undefined)}
+          onAdd={(line) => {
+            addLine(line);
+            setConfiguring(undefined);
+          }}
+        />
+      )}
+    </section>
+  );
+}
+
+function ItemDialog({
+  item,
+  onClose,
+  onAdd,
+}: {
+  item: MenuItem;
+  onClose(): void;
+  onAdd(line: TicketLine): void;
+}) {
+  const [selection, setSelection] = useState<OptionSelection>({});
+  const [quantity, setQuantity] = useState(1);
+  const [note, setNote] = useState('');
+  const missing = missingRequiredGroups(item, selection);
+  const unitPrice = unitPriceOf(item, selection);
+
+  return (
+    <Modal
+      title={item.name}
+      onClose={onClose}
+      footer={
+        <button
+          className="button button-primary button-wide"
+          disabled={missing.length > 0}
+          onClick={() => onAdd(buildLine(crypto.randomUUID(), item, selection, quantity, note))}
+        >
+          {missing.length > 0
+            ? `請選擇${missing.map((group) => group.name).join('、')}`
+            : `加入　${formatMoney(unitPrice * quantity)}`}
+        </button>
+      }
+    >
+      {item.optionGroups.map((group) => (
+        <fieldset key={group.id} className="option-group">
+          <legend className="field-label">
+            {group.name}
+            <span className="field-hint">
+              {group.required ? '必選' : '可不選'}
+              {group.multiple ? '・可複選' : ''}
+            </span>
+          </legend>
+          <div className="chip-row">
+            {group.choices.map((choice) => {
+              const selected = selection[group.id]?.includes(choice.id) ?? false;
+              return (
+                <button
+                  key={choice.id}
+                  aria-pressed={selected}
+                  className={selected ? 'chip is-selected' : 'chip'}
+                  onClick={() => setSelection(toggleChoice(selection, group, choice.id))}
+                >
+                  {choice.name}
+                  {choice.priceDelta > 0 && ` +${choice.priceDelta}`}
+                </button>
+              );
+            })}
+          </div>
+        </fieldset>
+      ))}
+      <label className="field-label" htmlFor="line-note">備註</label>
+      <input
+        id="line-note"
+        className="text-input"
+        value={note}
+        onChange={(event) => setNote(event.target.value)}
+        placeholder="例如：不要蔥"
+      />
+      <p className="field-label">數量</p>
+      <Stepper value={quantity} min={1} onChange={setQuantity} label={item.name} />
+    </Modal>
+  );
+}
+
+function Stepper({
+  value,
+  min,
+  onChange,
+  label,
+}: {
+  value: number;
+  min: number;
+  onChange(value: number): void;
+  label: string;
+}) {
+  return (
+    <div className="stepper">
+      <button
+        className="stepper-button"
+        disabled={value <= min}
+        aria-label={`減少${label}數量`}
+        onClick={() => onChange(value - 1)}
+      >
+        −
+      </button>
+      <span aria-live="polite">{value}</span>
+      <button className="stepper-button" aria-label={`增加${label}數量`} onClick={() => onChange(value + 1)}>
+        +
+      </button>
+    </div>
+  );
+}
+
+function BillPanel({ check }: { check: GuestCheck }) {
+  const { live, drafts, setDraft, actions, notify } = useApp();
+  const { busy, run } = useAction();
+  const [paying, setPaying] = useState(false);
+  const [voiding, setVoiding] = useState<{ ticket: KitchenTicket; line: TicketLine }>();
+
+  const draft = drafts[check.id];
+  const draftLines = draft?.lines ?? [];
+  const tickets = ticketsForCheck(live.state, check.id);
+  const total = billTotal(live.state, check.id);
+  const draftTotal = draftLines.reduce((sum, line) => sum + lineAmount(line), 0);
+  const paid = check.status === 'PAID';
+
+  const updateDraftLine = (lineId: string, quantity: number) => {
+    if (!draft) return;
+    const lines =
+      quantity === 0
+        ? draft.lines.filter((line) => line.id !== lineId)
+        : draft.lines.map((line) => (line.id === lineId ? { ...line, quantity } : line));
+    setDraft(check.id, lines.length > 0 ? { ...draft, lines } : undefined);
+  };
+
+  const send = () =>
+    run(async () => {
+      if (!draft) return;
+      await actions.sendTicket({
+        id: draft.ticketId,
+        checkId: check.id,
+        tableName: check.tableName,
+        round: nextRound(live.state, check.id),
+        status: 'NEW',
+        sentAt: new Date().toISOString(),
+        lines: draft.lines,
+      });
+      setDraft(check.id, undefined);
+      notify('已送廚');
+    }, '送廚失敗');
+
+  const leave = (message: string) =>
+    run(async () => {
+      await actions.clearTable(check.tableId);
+      notify(message);
+      goToFloor();
+    }, '更新桌位失敗');
+
+  return (
+    <section className="bill-panel" aria-label="帳單">
+      <header className="bill-header">
+        <button className="link-button" onClick={goToFloor}>← 桌位</button>
+        <h1>{check.tableName}</h1>
+        <span className="table-meta">{check.guestCount} 人</span>
+      </header>
+
+      <div className="bill-scroll">
+        {draftLines.length > 0 && (
+          <div className="bill-group bill-draft">
+            <h2>尚未送廚</h2>
+            <ul className="bill-lines">
+              {draftLines.map((line) => (
+                <li key={line.id}>
+                  <div className="bill-line-main">
+                    <span>{line.name}</span>
+                    <span>{formatMoney(lineAmount(line))}</span>
+                  </div>
+                  <LineDetails line={line} />
+                  <div className="bill-line-tools">
+                    <Stepper
+                      value={line.quantity}
+                      min={0}
+                      label={line.name}
+                      onChange={(quantity) => updateDraftLine(line.id, quantity)}
+                    />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {tickets.map((ticket) => (
+          <div key={ticket.id} className="bill-group">
+            <h2>
+              第 {ticket.round} 輪
+              <span className={`status-pill status-${ticket.status.toLowerCase()}`}>
+                {isFullyVoided(live.state, ticket) ? '已取消' : STATUS_LABEL[ticket.status]}
+              </span>
+            </h2>
+            <ul className="bill-lines">
+              {ticket.lines.map((line) => {
+                const lineVoid = live.state.voids[voidId(ticket.id, line.id)];
+                return (
+                  <li key={line.id} className={lineVoid ? 'is-voided' : ''}>
+                    <div className="bill-line-main">
+                      <span>{line.name} × {line.quantity}</span>
+                      <span className="bill-amount">{formatMoney(lineAmount(line))}</span>
+                    </div>
+                    <LineDetails line={line} />
+                    {lineVoid ? (
+                      <div className="void-flag">已取消：{lineVoid.reason}</div>
+                    ) : (
+                      !paid && (
+                        <button className="link-button link-danger" onClick={() => setVoiding({ ticket, line })}>
+                          取消品項
+                        </button>
+                      )
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
+
+        {tickets.length === 0 && draftLines.length === 0 && (
+          <p className="empty-note">從左邊選擇菜色開始點餐</p>
+        )}
+      </div>
+
+      <footer className="bill-footer">
+        <div className="bill-total">
+          <span>{paid ? '已收款' : '已送廚合計'}</span>
+          <strong>{formatMoney(paid ? (check.total ?? total) : total)}</strong>
+        </div>
+        {paid ? (
+          <>
+            <p className="table-meta">
+              付款方式：{check.paymentMethod === 'CARD' ? '刷卡' : '現金'}
+            </p>
+            <button className="button button-primary button-wide" disabled={busy} onClick={() => leave('已清桌')}>
+              清桌
+            </button>
+          </>
+        ) : draftLines.length > 0 ? (
+          <button className="button button-primary button-wide" disabled={busy} onClick={send}>
+            送廚（{formatMoney(draftTotal)}）
+          </button>
+        ) : tickets.length === 0 ? (
+          <button className="button button-wide" disabled={busy} onClick={() => leave('已取消開桌')}>
+            取消開桌
+          </button>
+        ) : (
+          <button className="button button-primary button-wide" onClick={() => setPaying(true)}>
+            結帳
+          </button>
+        )}
+      </footer>
+
+      {paying && <PayDialog check={check} total={total} onClose={() => setPaying(false)} />}
+      {voiding && (
+        <VoidDialog
+          ticket={voiding.ticket}
+          line={voiding.line}
+          onClose={() => setVoiding(undefined)}
+        />
+      )}
+    </section>
+  );
+}
+
+function PayDialog({ check, total, onClose }: { check: GuestCheck; total: number; onClose(): void }) {
+  const { live, actions, notify } = useApp();
+  const { busy, run } = useAction();
+  const [method, setMethod] = useState<PaymentMethod>('CASH');
+  const unserved = useMemo(() => unservedTickets(live.state, check.id), [live.state, check.id]);
+
+  const pay = () =>
+    run(async () => {
+      await actions.payCheck(check, method, total);
+      notify(`${check.tableName} 已結帳`);
+      onClose();
+    }, '結帳失敗');
+
+  return (
+    <Modal
+      title={`${check.tableName} 結帳`}
+      onClose={onClose}
+      footer={
+        <button className="button button-primary button-wide" disabled={busy} onClick={pay}>
+          確認收款 {formatMoney(total)}
+        </button>
+      }
+    >
+      <div className="pay-total">{formatMoney(total)}</div>
+      {unserved.length > 0 && (
+        <p className="warning-note">還有 {unserved.length} 張工作單尚未上菜，結帳後廚房仍會繼續製作。</p>
+      )}
+      <p className="field-label">付款方式</p>
+      <div className="chip-row">
+        {(
+          [
+            ['CASH', '現金'],
+            ['CARD', '刷卡'],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            aria-pressed={method === value}
+            className={method === value ? 'chip is-selected' : 'chip'}
+            onClick={() => setMethod(value)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <p className="field-hint">這裡只記錄付款方式，不會實際收款。</p>
+    </Modal>
+  );
+}
+
+function VoidDialog({
+  ticket,
+  line,
+  onClose,
+}: {
+  ticket: KitchenTicket;
+  line: TicketLine;
+  onClose(): void;
+}) {
+  const { actions, notify } = useApp();
+  const { busy, run } = useAction();
+  const [reason, setReason] = useState<string>();
+
+  const confirm = () =>
+    run(async () => {
+      if (!reason) return;
+      await actions.voidLine({
+        id: voidId(ticket.id, line.id),
+        ticketId: ticket.id,
+        checkId: ticket.checkId,
+        lineId: line.id,
+        reason,
+        voidedAt: new Date().toISOString(),
+      });
+      notify(`已取消 ${line.name}`);
+      onClose();
+    }, '取消品項失敗');
+
+  return (
+    <Modal
+      title={`取消 ${line.name} × ${line.quantity}`}
+      onClose={onClose}
+      footer={
+        <button className="button button-danger button-wide" disabled={busy || !reason} onClick={confirm}>
+          {reason ? '確認取消品項' : '請選擇原因'}
+        </button>
+      }
+    >
+      <p className="field-label">取消原因</p>
+      <div className="chip-row">
+        {VOID_REASONS.map((option) => (
+          <button
+            key={option}
+            aria-pressed={reason === option}
+            className={reason === option ? 'chip is-selected' : 'chip'}
+            onClick={() => setReason(option)}
+          >
+            {option}
+          </button>
+        ))}
+      </div>
+      <p className="field-hint">整筆品項都會取消並從帳單扣除，廚房畫面會顯示。</p>
+    </Modal>
+  );
+}
