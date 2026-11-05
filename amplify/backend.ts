@@ -18,7 +18,7 @@ const { tables } = backend.data.resources;
 const tableAccess = {
   DiningTable: ['dynamodb:GetItem', 'dynamodb:Query'],
   MenuItem: ['dynamodb:BatchGetItem'],
-  Order: ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:UpdateItem'],
+  Order: ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:UpdateItem', 'dynamodb:Query'],
   KitchenTicket: ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:Query'],
   GuestCheck: ['dynamodb:PutItem'],
   Seating: ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:ConditionCheckItem'],

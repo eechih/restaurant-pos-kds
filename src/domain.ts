@@ -112,6 +112,7 @@ export type OrderRejection =
   | 'ITEM_UNAVAILABLE'
   | 'INVALID_ITEMS'
   | 'PRICE_CHANGED'
+  | 'TOO_MANY_PENDING'
   | 'ORDER_NOT_FOUND'
   | 'ORDER_EXPIRED';
 
@@ -120,6 +121,7 @@ export const ORDER_REJECTION_MESSAGE: Record<OrderRejection, string> = {
   ITEM_UNAVAILABLE: '有品項已售完或已下架，請重新點餐',
   INVALID_ITEMS: '點餐內容有誤，請重新點餐',
   PRICE_CHANGED: '菜單價格已變更，請重新點餐',
+  TOO_MANY_PENDING: '這桌尚未付款的訂單太多，請先到櫃台付款或稍後再試',
   ORDER_NOT_FOUND: '找不到這筆訂單',
   ORDER_EXPIRED: '這筆訂單已逾時，請重新操作',
 };
@@ -308,6 +310,12 @@ export interface OrderItemInput {
 }
 
 export const ORDER_LIFETIME_MS = 15 * 60_000;
+/**
+ * Anyone holding a table's QR link can order without signing in, so this keeps
+ * one link from flooding the staff's pending list. Unpaid orders expire, so a
+ * table that reaches it recovers by itself.
+ */
+export const MAX_PENDING_ORDERS_PER_TABLE = 10;
 const MAX_ORDER_LINES = 50;
 const MAX_LINE_QUANTITY = 99;
 const MAX_NOTE_LENGTH = 200;

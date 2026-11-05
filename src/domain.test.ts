@@ -10,6 +10,7 @@ import {
   effectiveOrderStatus,
   emptyLiveState,
   isFullyVoided,
+  MAX_PENDING_ORDERS_PER_TABLE,
   missingRequiredGroups,
   nextRound,
   OrderRejectedError,
@@ -319,6 +320,30 @@ test('an order is rejected when the table is unknown or the price moved', async 
     rejection('PRICE_CHANGED'),
   );
   assert.equal(await customer.getOrder('o2'), null);
+});
+
+test('one table cannot flood the pending list, and recovers once orders clear', async (context) => {
+  context.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-11-04T10:00:00.000Z') });
+  const { staff, customer, table, tableToken } = await demoRestaurant();
+  const place = (orderId: string, token = tableToken) =>
+    customer.placeOrder({ orderId, tableToken: token, items: greens, expectedTotal: 40 });
+  for (let index = 0; index < MAX_PENDING_ORDERS_PER_TABLE; index += 1) await place(`o${index}`);
+
+  await assert.rejects(place('extra'), rejection('TOO_MANY_PENDING'));
+  assert.equal((await place('o0')).id, 'o0', 'a retry is not a new order');
+
+  const otherTable = (await staff.getCatalog()).tables[1];
+  assert.ok(otherTable.qrToken);
+  await place('elsewhere', otherTable.qrToken);
+
+  await staff.placeStaffOrder({ orderId: 'counter', tableId: table.id, items: greens, expectedTotal: 40 });
+  await staff.confirmOrderPayment('counter', 'CASH');
+  await staff.confirmOrderPayment('o0', 'CASH');
+  await place('after-payment');
+  await assert.rejects(place('extra'), rejection('TOO_MANY_PENDING'));
+
+  context.mock.timers.setTime(Date.parse('2026-11-04T10:15:00.000Z'));
+  assert.equal((await place('after-expiry')).status, 'PENDING');
 });
 
 test('an expired order cannot be paid', async (context) => {

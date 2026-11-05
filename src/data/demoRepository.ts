@@ -4,8 +4,10 @@ import {
   effectiveOrderStatus,
   emptyLiveState,
   nextRound,
+  MAX_PENDING_ORDERS_PER_TABLE,
   ORDER_LIFETIME_MS,
   OrderRejectedError,
+  pendingOrders,
   priceOrder,
   ticketIdForOrder,
   type Catalog,
@@ -51,11 +53,19 @@ function createStore(storage: KeyValueStore) {
     table: { id: string; name: string } | undefined,
     items: OrderItemInput[],
     expectedTotal: number,
+    { limitPending }: { limitPending: boolean },
   ): Order => {
     const { catalog, live } = read();
     const existing = live.orders[orderId];
     if (existing) return existing;
     if (!table) throw new OrderRejectedError('TABLE_NOT_FOUND');
+    if (
+      limitPending &&
+      pendingOrders(live, Date.now()).filter((order) => order.tableId === table.id).length >=
+        MAX_PENDING_ORDERS_PER_TABLE
+    ) {
+      throw new OrderRejectedError('TOO_MANY_PENDING');
+    }
     const { lines, total } = priceOrder(catalog.items, items, () => crypto.randomUUID());
     if (total !== expectedTotal) throw new OrderRejectedError('PRICE_CHANGED');
     const now = Date.now();
@@ -133,7 +143,7 @@ export function createDemoRepository(storage: KeyValueStore = localStorage): Rep
     },
     async placeStaffOrder({ orderId, tableId, items, expectedTotal }) {
       const table = read().catalog.tables.find((candidate) => candidate.id === tableId);
-      placeOrder(orderId, table, items, expectedTotal);
+      placeOrder(orderId, table, items, expectedTotal, { limitPending: false });
     },
     async confirmOrderPayment(orderId, paymentMethod) {
       const { live } = read();
@@ -231,7 +241,7 @@ export function createDemoCustomerRepository(
     },
     async placeOrder({ orderId, tableToken, items, expectedTotal }) {
       const table = read().catalog.tables.find((candidate) => candidate.qrToken === tableToken);
-      return toCustomerOrder(placeOrder(orderId, table, items, expectedTotal));
+      return toCustomerOrder(placeOrder(orderId, table, items, expectedTotal, { limitPending: true }));
     },
     async getOrder(orderId) {
       const order = read().live.orders[orderId];

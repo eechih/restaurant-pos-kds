@@ -10,6 +10,7 @@ import {
 } from '@aws-sdk/lib-dynamodb';
 import {
   effectiveOrderStatus,
+  MAX_PENDING_ORDERS_PER_TABLE,
   ORDER_LIFETIME_MS,
   OrderRejectedError,
   priceOrder,
@@ -85,15 +86,51 @@ async function getMenuItems(items: OrderItemInput[]): Promise<MenuItem[]> {
   return (Responses?.[TABLES.menu] ?? []) as MenuItem[];
 }
 
+/**
+ * The index is eventually consistent, so a burst can pass the limit by a few.
+ * That is acceptable, because the limit only has to stop sustained flooding.
+ */
+async function hasRoomForPendingOrder(tableId: string) {
+  const now = Date.now();
+  let count = 0;
+  let ExclusiveStartKey: Record<string, unknown> | undefined;
+  do {
+    const page = await db.send(
+      new QueryCommand({
+        TableName: TABLES.order,
+        IndexName: 'ordersByStatusAndCreatedAt',
+        KeyConditionExpression: '#status = :pending AND createdAt >= :since',
+        FilterExpression: 'tableId = :tableId AND expiresAt > :now',
+        ExpressionAttributeNames: { '#status': 'status' },
+        ExpressionAttributeValues: {
+          ':pending': 'PENDING',
+          ':since': new Date(now - ORDER_LIFETIME_MS).toISOString(),
+          ':tableId': tableId,
+          ':now': new Date(now).toISOString(),
+        },
+        Select: 'COUNT',
+        ExclusiveStartKey,
+      }),
+    );
+    count += page.Count ?? 0;
+    ExclusiveStartKey = page.LastEvaluatedKey;
+  } while (ExclusiveStartKey && count < MAX_PENDING_ORDERS_PER_TABLE);
+  return count < MAX_PENDING_ORDERS_PER_TABLE;
+}
+
 async function createOrder(
   orderId: string,
   table: { id: string; name: string } | undefined,
   items: OrderItemInput[],
   expectedTotal: number,
+  { limitPending }: { limitPending: boolean },
 ) {
   const existing = await getOrder(orderId);
   if (existing) return toCustomerOrder(existing);
   if (!table) throw new OrderRejectedError('TABLE_NOT_FOUND');
+  if (limitPending && !(await hasRoomForPendingOrder(table.id))) {
+    throw new OrderRejectedError('TOO_MANY_PENDING');
+  }
 
   const { lines, total } = priceOrder(await getMenuItems(items), items, randomUUID);
   if (total !== expectedTotal) throw new OrderRejectedError('PRICE_CHANGED');
@@ -270,6 +307,7 @@ export const handler = async ({ fieldName, arguments: args }: Event) => {
         await tableForToken(args.tableToken),
         args.items,
         args.expectedTotal,
+        { limitPending: true },
       );
     case 'placeStaffOrder':
       return createOrder(
@@ -277,6 +315,8 @@ export const handler = async ({ fieldName, arguments: args }: Event) => {
         await getItem(TABLES.dining, { id: args.tableId }),
         args.items,
         args.expectedTotal,
+        // Flooding must not stop staff taking orders at the counter.
+        { limitPending: false },
       );
     case 'confirmOrderPayment':
       return confirmPayment(args.orderId, args.paymentMethod);
