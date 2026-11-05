@@ -1,6 +1,6 @@
 # 前端架構擴展方向
 
-- **狀態：** 已決定，尚未實作
+- **狀態：** Router 與 Query 已導入
 - **決定日期：** 2026-11-05
 
 ## 決定
@@ -10,24 +10,18 @@
 - 保留 `Repository`，作為 Query 的資料來源。
 - POS/KDS 的即時狀態繼續由 `useLiveState` 管理，不搬進 Query。
 
-## 何時開始
+## 導入時機
 
-出現下列任一需求時，就先做本文的導入步驟：
-
-- 要新增 POS、KDS 以外的領域，例如報表、菜單管理、歷史訂單、庫存。
-- 要新增需要權限分流的頁面，例如店長專用頁。
-- 要新增需要把篩選、分頁條件放進 URL 的頁面。
-
-在此之前不需要導入。目前只有 POS 和 KDS 兩個主畫面，資料也幾乎都是即時狀態，導入的收益不大。
+[顧客掃碼點餐](qr-ordering.md)需要不必登入的顧客端入口和請求式資料，因此在開發該功能前先導入。
 
 ## 背景
 
-目前的做法在兩個主畫面的規模下夠用，但擴展時會遇到這些問題：
+導入前的做法在兩個主畫面的規模下夠用，但擴展時會遇到這些問題：
 
-| 現況 | 位置 | 擴展時的問題 |
+| 當時的做法 | 位置 | 擴展時的問題 |
 |---|---|---|
-| 手寫 hash 路由，用正規表達式解析參數 | `useHashPath`（`src/App.tsx`）、`src/pos/PosPage.tsx` | 參數沒有型別，也沒有巢狀版面、路由守衛和頁面級 code splitting |
-| 目錄用 `useState` 加 `reloadCatalog` 載入 | `src/App.tsx` | 每種請求式資料都要重寫載入、失敗和快取邏輯 |
+| 手寫 hash 路由，用正規表達式解析參數 | `src/App.tsx`、`src/pos/PosPage.tsx` | 參數沒有型別，也沒有巢狀版面、路由守衛和頁面級 code splitting |
+| 目錄用 `useState` 手動載入 | `src/App.tsx` | 每種請求式資料都要重寫載入、失敗和快取邏輯 |
 | 所有狀態放在同一個 `AppContext` | `src/appContext.ts` | 任何變動都會重新渲染所有 `useApp()` 的元件 |
 | 手動管理寫入狀態 | `useAction`（`src/appContext.ts`） | 每個新動作都要自行串接 `busy`、錯誤提示和本地更新 |
 
@@ -54,23 +48,27 @@
 - **繼續手寫：** 頁面和請求式資料變多後，等於自己重寫一套較不完整的路由和快取。
 - **只導入 Query：** 報表和後台頁面需要的 URL 篩選條件、權限守衛，仍然要手寫。
 
-## 導入步驟
+## 目前的結構
 
-每一步完成後，`npm test` 和 `npm run typecheck` 都應通過，POS/KDS 的行為也應維持不變。
+| 網址 | 路由檔案（`src/routes/`） | 頁面 | 需要登入 |
+|---|---|---|---|
+| `#/` | `index.tsx` | 轉址到 `#/pos` | 否 |
+| `#/pos` | `_staff.pos.index.tsx` | `FloorView` | 是 |
+| `#/pos/table/$tableId` | `_staff.pos.table.$tableId.tsx` | `TableView` | 是 |
+| `#/kds` | `_staff.kds.tsx` | `KdsPage` | 是 |
+| `#/order/$tableToken` | `order.$tableToken.tsx` | 顧客點餐（目前是占位頁） | 否 |
 
-1. **建立基礎設定：** 安裝套件，建立 `QueryClient`，並把 `queryClient` 和 `repository` 放進 Router context。`main.tsx` 選擇實作的方式不變。`Authenticator` 仍然包在 Router 外層。
-2. **遷移現有路由：** 用 hash history 保留現有網址，再移除 `useHashPath` 和 `PosPage` 裡的正規表達式。
+- **`_staff` 版面：** 員工頁面都掛在這層底下。它透過 `src/staffApp.tsx` 按需載入後端實作、登入介面和 `App`，所以顧客端不會下載這些程式碼，新增員工頁面時也要放在這層底下。
+- **網址：** 使用 hash history，靜態託管不需要 rewrite 設定。
+- **`src/routeTree.gen.ts`：** 由 Vite 外掛產生，要 commit，因為 `npm run build` 會先跑 `tsc`，但不要手動修改。
+- **目錄資料：** `src/data/catalogQuery.ts` 取代了手動載入。`AppContext` 的 `catalog` 和 `catalogState` 由它推導，現有畫面不用改。
+- **`networkMode: 'always'`：** demo 模式讀的是瀏覽器儲存空間，所以 query 不能因為離線而暫停。
 
-   | 網址 | 頁面 |
-   |---|---|
-   | `#/pos` | `FloorView` |
-   | `#/pos/table/$tableId` | `TableView` |
-   | `#/kds` | `KdsPage` |
+## 新功能的做法
 
-3. **遷移目錄資料：** 用 `useQuery` 取代 `catalog`、`catalogState` 和 `reloadCatalog`，並用它驗證本文的做法。
-4. **開發新領域：** 新領域一律使用 Query 和 file-based routes，並放在 `src/features/<領域>/`。既有的 `Actions` 不必一次改完，修改到時再逐步換成 `useMutation`。
-
-## 範例
+- 頁面放 `src/routes/`，其餘程式碼放 `src/features/<領域>/`。
+- 請求式資料用 Query，並把 query 定義放在該領域內。
+- 既有的 `Actions` 不必一次改完，修改到時再逐步換成 `useMutation`。
 
 ```ts
 // src/features/reports/queries.ts
@@ -80,18 +78,21 @@ export const salesQuery = (repository: ReportRepository, range: DateRange) =>
     queryFn: () => repository.getSales(range),
   });
 
-// src/routes/reports.sales.tsx
-export const Route = createFileRoute('/reports/sales')({
+// src/routes/_staff.reports.sales.tsx
+export const Route = createFileRoute('/_staff/reports/sales')({
   validateSearch: salesSearchSchema,
-  loaderDeps: ({ search }) => ({ range: search.range }),
-  loader: ({ context, deps }) =>
-    context.queryClient.ensureQueryData(
-      salesQuery(context.repositories.reports, deps.range),
-    ),
+  component: SalesReportPage,
 });
+
+function SalesReportPage() {
+  const { range } = Route.useSearch();
+  const { repositories } = useApp();
+  const { data } = useQuery(salesQuery(repositories.reports, range));
+  // ...
+}
 ```
 
-`ReportRepository` 和 `repositories` 是拆分後才會有的名稱，見下一節。
+員工端的 repository 是登入層載入後才存在，所以由 `useApp()` 取得，不放進 Router context，也不在路由的 `loader` 裡使用。範例中的 `ReportRepository` 和 `repositories` 是拆分後才會有的名稱，見下一節。
 
 ## 之後視情況調整
 

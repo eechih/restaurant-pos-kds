@@ -1,3 +1,4 @@
+import { useNavigate } from '@tanstack/react-router';
 import { useState } from 'react';
 import { useAction, useApp, useNow } from '../appContext';
 import {
@@ -14,9 +15,10 @@ import {
 } from '../domain';
 import { Modal } from '../ui/Modal';
 
-const goToTable = (tableId: string) => {
-  window.location.hash = `#/pos/table/${encodeURIComponent(tableId)}`;
-};
+function useGoToTable() {
+  const navigate = useNavigate();
+  return (tableId: string) => void navigate({ to: '/pos/table/$tableId', params: { tableId } });
+}
 
 export function FloorView() {
   const { catalog, live, actions } = useApp();
@@ -72,6 +74,7 @@ export function FloorView() {
 
 function TableCard({ table, onOpen }: { table: DiningTable; onOpen(): void }) {
   const { live } = useApp();
+  const goToTable = useGoToTable();
   const now = useNow();
   const status = tableState(live.state, table.id);
   const check = live.state.checks[live.state.seatings[table.id]?.checkId];
@@ -134,6 +137,7 @@ function ReadyTicket({ ticket }: { ticket: KitchenTicket }) {
 
 function GuestCountDialog({ table, onClose }: { table: DiningTable; onClose(): void }) {
   const { actions, notify } = useApp();
+  const goToTable = useGoToTable();
   const { busy, run } = useAction();
   const [guestCount, setGuestCount] = useState(table.seats);
 

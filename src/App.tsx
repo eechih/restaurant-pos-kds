@@ -1,21 +1,10 @@
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link, Outlet, useLocation } from '@tanstack/react-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { catalogQuery } from './data/catalogQuery';
 import type { Repository } from './data/repository';
 import { useLiveState } from './data/useLiveState';
-import { emptyCatalog, type Actions, AppContext, type Draft } from './appContext';
-import type { Catalog } from './domain';
-import { KdsPage } from './kds/KdsPage';
-import { PosPage } from './pos/PosPage';
-
-function useHashPath() {
-  const read = () => window.location.hash.replace(/^#/, '') || '/pos';
-  const [path, setPath] = useState(read);
-  useEffect(() => {
-    const onChange = () => setPath(read());
-    window.addEventListener('hashchange', onChange);
-    return () => window.removeEventListener('hashchange', onChange);
-  }, []);
-  return path;
-}
+import { emptyCatalog, type Actions, AppContext, type AppContextValue, type Draft } from './appContext';
 
 interface AppProps {
   repository: Repository;
@@ -24,25 +13,16 @@ interface AppProps {
 }
 
 export function App({ repository, userLabel, onSignOut }: AppProps) {
-  const path = useHashPath();
+  const isKds = useLocation({ select: (location) => location.pathname.startsWith('/kds') });
+  const queryClient = useQueryClient();
   const live = useLiveState(repository);
   const { dispatch } = live;
-  const [catalog, setCatalog] = useState<Catalog>(emptyCatalog);
-  const [catalogState, setCatalogState] = useState<'loading' | 'ready' | 'failed'>('loading');
+  const { data, isPending } = useQuery(catalogQuery(repository));
+  const catalog = data ?? emptyCatalog;
+  // A failed background refresh keeps showing the menu it already has.
+  const catalogState: AppContextValue['catalogState'] = data ? 'ready' : isPending ? 'loading' : 'failed';
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [toast, setToast] = useState<{ id: number; message: string; isError: boolean }>();
-
-  const reloadCatalog = useCallback(async () => {
-    try {
-      setCatalog(await repository.getCatalog());
-      setCatalogState('ready');
-    } catch (error) {
-      console.error('Failed to load catalog', error);
-      setCatalogState('failed');
-    }
-  }, [repository]);
-
-  useEffect(() => void reloadCatalog(), [reloadCatalog]);
 
   useEffect(() => {
     if (!toast) return;
@@ -69,7 +49,7 @@ export function App({ repository, userLabel, onSignOut }: AppProps) {
     () => ({
       async seedCatalog() {
         await repository.seedCatalog();
-        await reloadCatalog();
+        await queryClient.invalidateQueries({ queryKey: catalogQuery(repository).queryKey });
       },
       async openTable(input) {
         const check = await repository.openTable(input);
@@ -101,7 +81,7 @@ export function App({ repository, userLabel, onSignOut }: AppProps) {
         dispatch({ type: 'seating/delete', tableId });
       },
     }),
-    [repository, reloadCatalog, dispatch],
+    [repository, queryClient, dispatch],
   );
 
   const context = useMemo(
@@ -109,15 +89,13 @@ export function App({ repository, userLabel, onSignOut }: AppProps) {
     [catalog, catalogState, live, actions, drafts, setDraft, notify],
   );
 
-  const isKds = path.startsWith('/kds');
-
   return (
     <AppContext.Provider value={context}>
       <div className={isKds ? 'app theme-kds' : 'app'}>
         <header className="topbar">
           <nav className="topbar-nav" aria-label="主要頁面">
-            <a href="#/pos" className={isKds ? '' : 'is-active'}>POS</a>
-            <a href="#/kds" className={isKds ? 'is-active' : ''}>KDS 廚房</a>
+            <Link to="/pos" className={isKds ? '' : 'is-active'}>POS</Link>
+            <Link to="/kds" className={isKds ? 'is-active' : ''}>KDS 廚房</Link>
           </nav>
           <div className="topbar-status">
             {repository.mode === 'demo' && (
@@ -142,7 +120,7 @@ export function App({ repository, userLabel, onSignOut }: AppProps) {
             {onSignOut && <button className="link-button" onClick={onSignOut}>登出</button>}
           </div>
         </header>
-        <main className="page">{isKds ? <KdsPage /> : <PosPage path={path} />}</main>
+        <main className="page"><Outlet /></main>
         {toast && (
           <div key={toast.id} className={toast.isError ? 'toast toast-error' : 'toast'} role="alert">
             {toast.message}

@@ -1,3 +1,4 @@
+import { useNavigate } from '@tanstack/react-router';
 import { useMemo, useState } from 'react';
 import { useAction, useApp } from '../appContext';
 import {
@@ -32,12 +33,14 @@ const STATUS_LABEL: Record<TicketStatus, string> = {
 };
 const VOID_REASONS = ['點錯', '客人取消', '缺料', '其他'];
 
-const goToFloor = () => {
-  window.location.hash = '#/pos';
-};
+function useGoToFloor() {
+  const navigate = useNavigate();
+  return () => void navigate({ to: '/pos' });
+}
 
 export function TableView({ tableId }: { tableId: string }) {
   const { catalog, live } = useApp();
+  const goToFloor = useGoToFloor();
   const table = catalog.tables.find((candidate) => candidate.id === tableId);
   const check = live.state.checks[live.state.seatings[tableId]?.checkId];
 
@@ -219,6 +222,7 @@ function Stepper({
 
 function BillPanel({ check }: { check: GuestCheck }) {
   const { live, drafts, setDraft, actions, notify } = useApp();
+  const goToFloor = useGoToFloor();
   const { busy, run } = useAction();
   const [paying, setPaying] = useState(false);
   const [voiding, setVoiding] = useState<{ ticket: KitchenTicket; line: TicketLine }>();

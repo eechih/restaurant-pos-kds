@@ -59,7 +59,10 @@ npx ampx sandbox delete
 - **品項快照：** 名稱、價格和選項在點餐時就存進工作單，之後改菜單不影響既有帳單。
 - **斷線補單：** App 在連線恢復時會重新載入完整資料，另外每 60 秒同步一次，以補上斷線期間錯過的事件。
 
-前端擴展時的架構方向見[前端架構擴展方向](docs/frontend-architecture.md)。
+其他設計文件：
+
+- [前端架構擴展方向](docs/frontend-architecture.md)
+- [顧客掃碼點餐](docs/qr-ordering.md)
 
 ## 測試
 
