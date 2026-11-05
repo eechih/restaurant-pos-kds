@@ -1,6 +1,6 @@
 import { useNavigate } from '@tanstack/react-router';
-import { useMemo, useState } from 'react';
-import { useAction, useApp } from '../appContext';
+import { useState } from 'react';
+import { useAction, useApp, type DraftLine } from '../appContext';
 import {
   billTotal,
   buildLine,
@@ -8,7 +8,7 @@ import {
   isFullyVoided,
   lineAmount,
   missingRequiredGroups,
-  nextRound,
+  OrderRejectedError,
   ticketsForCheck,
   toggleChoice,
   unitPriceOf,
@@ -53,13 +53,24 @@ export function TableView({ tableId }: { tableId: string }) {
     );
   }
 
-  const paid = check.status === 'PAID';
   return (
-    <div className={paid ? 'table-view is-paid' : 'table-view'}>
-      {!paid && <MenuPanel check={check} />}
+    <div className="table-view">
+      <MenuPanel check={check} />
       <BillPanel check={check} />
     </div>
   );
+}
+
+function buildDraftLine(
+  item: MenuItem,
+  selection: OptionSelection,
+  quantity: number,
+  note: string,
+): DraftLine {
+  return {
+    ...buildLine(crypto.randomUUID(), item, selection, quantity, note),
+    choiceIds: Object.values(selection).flat(),
+  };
 }
 
 function MenuPanel({ check }: { check: GuestCheck }) {
@@ -68,9 +79,9 @@ function MenuPanel({ check }: { check: GuestCheck }) {
   const [configuring, setConfiguring] = useState<MenuItem>();
   const items = catalog.items.filter((item) => item.categoryId === categoryId);
 
-  const addLine = (line: TicketLine) => {
-    const draft = drafts[check.id] ?? { ticketId: crypto.randomUUID(), lines: [] };
-    setDraft(check.id, { ...draft, lines: [...draft.lines, line] });
+  const addLine = (line: DraftLine) => {
+    const lines = drafts[check.id]?.lines ?? [];
+    setDraft(check.id, { orderId: crypto.randomUUID(), lines: [...lines, line] });
   };
 
   return (
@@ -93,15 +104,20 @@ function MenuPanel({ check }: { check: GuestCheck }) {
           <button
             key={item.id}
             className="item-card"
+            disabled={item.available === false}
             onClick={() =>
               item.optionGroups.length > 0
                 ? setConfiguring(item)
-                : addLine(buildLine(crypto.randomUUID(), item, {}, 1, ''))
+                : addLine(buildDraftLine(item, {}, 1, ''))
             }
           >
             <span className="item-name">{item.name}</span>
             <span className="item-price">{formatMoney(item.price)}</span>
-            {item.optionGroups.length > 0 && <span className="item-hint">可選規格</span>}
+            {item.available === false ? (
+              <span className="item-hint">已售完</span>
+            ) : (
+              item.optionGroups.length > 0 && <span className="item-hint">可選規格</span>
+            )}
           </button>
         ))}
       </div>
@@ -126,7 +142,7 @@ function ItemDialog({
 }: {
   item: MenuItem;
   onClose(): void;
-  onAdd(line: TicketLine): void;
+  onAdd(line: DraftLine): void;
 }) {
   const [selection, setSelection] = useState<OptionSelection>({});
   const [quantity, setQuantity] = useState(1);
@@ -142,7 +158,7 @@ function ItemDialog({
         <button
           className="button button-primary button-wide"
           disabled={missing.length > 0}
-          onClick={() => onAdd(buildLine(crypto.randomUUID(), item, selection, quantity, note))}
+          onClick={() => onAdd(buildDraftLine(item, selection, quantity, note))}
         >
           {missing.length > 0
             ? `請選擇${missing.map((group) => group.name).join('、')}`
@@ -232,7 +248,7 @@ function BillPanel({ check }: { check: GuestCheck }) {
   const tickets = ticketsForCheck(live.state, check.id);
   const total = billTotal(live.state, check.id);
   const draftTotal = draftLines.reduce((sum, line) => sum + lineAmount(line), 0);
-  const paid = check.status === 'PAID';
+  const unserved = unservedTickets(live.state, check.id);
 
   const updateDraftLine = (lineId: string, quantity: number) => {
     if (!draft) return;
@@ -240,24 +256,8 @@ function BillPanel({ check }: { check: GuestCheck }) {
       quantity === 0
         ? draft.lines.filter((line) => line.id !== lineId)
         : draft.lines.map((line) => (line.id === lineId ? { ...line, quantity } : line));
-    setDraft(check.id, lines.length > 0 ? { ...draft, lines } : undefined);
+    setDraft(check.id, lines.length > 0 ? { orderId: crypto.randomUUID(), lines } : undefined);
   };
-
-  const send = () =>
-    run(async () => {
-      if (!draft) return;
-      await actions.sendTicket({
-        id: draft.ticketId,
-        checkId: check.id,
-        tableName: check.tableName,
-        round: nextRound(live.state, check.id),
-        status: 'NEW',
-        sentAt: new Date().toISOString(),
-        lines: draft.lines,
-      });
-      setDraft(check.id, undefined);
-      notify('已送廚');
-    }, '送廚失敗');
 
   const leave = (message: string) =>
     run(async () => {
@@ -271,13 +271,13 @@ function BillPanel({ check }: { check: GuestCheck }) {
       <header className="bill-header">
         <button className="link-button" onClick={goToFloor}>← 桌位</button>
         <h1>{check.tableName}</h1>
-        <span className="table-meta">{check.guestCount} 人</span>
+        {check.guestCount && <span className="table-meta">{check.guestCount} 人</span>}
       </header>
 
       <div className="bill-scroll">
         {draftLines.length > 0 && (
           <div className="bill-group bill-draft">
-            <h2>尚未送廚</h2>
+            <h2>尚未收款</h2>
             <ul className="bill-lines">
               {draftLines.map((line) => (
                 <li key={line.id}>
@@ -321,11 +321,9 @@ function BillPanel({ check }: { check: GuestCheck }) {
                     {lineVoid ? (
                       <div className="void-flag">已取消：{lineVoid.reason}</div>
                     ) : (
-                      !paid && (
-                        <button className="link-button link-danger" onClick={() => setVoiding({ ticket, line })}>
-                          取消品項
-                        </button>
-                      )
+                      <button className="link-button link-danger" onClick={() => setVoiding({ ticket, line })}>
+                        取消品項
+                      </button>
                     )}
                   </li>
                 );
@@ -341,34 +339,32 @@ function BillPanel({ check }: { check: GuestCheck }) {
 
       <footer className="bill-footer">
         <div className="bill-total">
-          <span>{paid ? '已收款' : '已送廚合計'}</span>
-          <strong>{formatMoney(paid ? (check.total ?? total) : total)}</strong>
+          <span>已收款合計</span>
+          <strong>{formatMoney(total)}</strong>
         </div>
-        {paid ? (
-          <>
-            <p className="table-meta">
-              付款方式：{check.paymentMethod === 'CARD' ? '刷卡' : '現金'}
-            </p>
-            <button className="button button-primary button-wide" disabled={busy} onClick={() => leave('已清桌')}>
-              清桌
-            </button>
-          </>
-        ) : draftLines.length > 0 ? (
-          <button className="button button-primary button-wide" disabled={busy} onClick={send}>
-            送廚（{formatMoney(draftTotal)}）
+        {draftLines.length > 0 ? (
+          <button className="button button-primary button-wide" disabled={busy} onClick={() => setPaying(true)}>
+            收款並送廚（{formatMoney(draftTotal)}）
           </button>
         ) : tickets.length === 0 ? (
           <button className="button button-wide" disabled={busy} onClick={() => leave('已取消開桌')}>
             取消開桌
           </button>
         ) : (
-          <button className="button button-primary button-wide" onClick={() => setPaying(true)}>
-            結帳
-          </button>
+          <>
+            {unserved.length > 0 && (
+              <p className="warning-note">還有 {unserved.length} 張工作單尚未上菜，清桌後廚房仍會繼續製作。</p>
+            )}
+            <button className="button button-primary button-wide" disabled={busy} onClick={() => leave('已清桌')}>
+              清桌
+            </button>
+          </>
         )}
       </footer>
 
-      {paying && <PayDialog check={check} total={total} onClose={() => setPaying(false)} />}
+      {paying && draft && (
+        <PayDialog check={check} total={draftTotal} onClose={() => setPaying(false)} />
+      )}
       {voiding && (
         <VoidDialog
           ticket={voiding.ticket}
@@ -381,32 +377,52 @@ function BillPanel({ check }: { check: GuestCheck }) {
 }
 
 function PayDialog({ check, total, onClose }: { check: GuestCheck; total: number; onClose(): void }) {
-  const { live, actions, notify } = useApp();
+  const { drafts, setDraft, actions, notify } = useApp();
   const { busy, run } = useAction();
   const [method, setMethod] = useState<PaymentMethod>('CASH');
-  const unserved = useMemo(() => unservedTickets(live.state, check.id), [live.state, check.id]);
 
   const pay = () =>
     run(async () => {
-      await actions.payCheck(check, method, total);
-      notify(`${check.tableName} 已結帳`);
+      const draft = drafts[check.id];
+      if (!draft) return;
+      try {
+        await actions.placeAndPay(
+          {
+            orderId: draft.orderId,
+            tableId: check.tableId,
+            items: draft.lines.map(({ menuItemId, quantity, choiceIds, note }) => ({
+              menuItemId,
+              quantity,
+              choiceIds,
+              note,
+            })),
+            expectedTotal: total,
+          },
+          method,
+        );
+      } catch (error) {
+        // An expired order id can never succeed, so a retry needs a new one.
+        if (error instanceof OrderRejectedError && error.code === 'ORDER_EXPIRED') {
+          setDraft(check.id, { ...draft, orderId: crypto.randomUUID() });
+        }
+        throw error;
+      }
+      setDraft(check.id, undefined);
+      notify(`${check.tableName} 已收款並送廚`);
       onClose();
-    }, '結帳失敗');
+    }, '收款失敗');
 
   return (
     <Modal
-      title={`${check.tableName} 結帳`}
+      title={`${check.tableName} 收款`}
       onClose={onClose}
       footer={
         <button className="button button-primary button-wide" disabled={busy} onClick={pay}>
-          確認收款 {formatMoney(total)}
+          確認收款並送廚 {formatMoney(total)}
         </button>
       }
     >
       <div className="pay-total">{formatMoney(total)}</div>
-      {unserved.length > 0 && (
-        <p className="warning-note">還有 {unserved.length} 張工作單尚未上菜，結帳後廚房仍會繼續製作。</p>
-      )}
       <p className="field-label">付款方式</p>
       <div className="chip-row">
         {(
@@ -454,7 +470,7 @@ function VoidDialog({
         reason,
         voidedAt: new Date().toISOString(),
       });
-      notify(`已取消 ${line.name}`);
+      notify(`已取消 ${line.name}，請退款 ${formatMoney(lineAmount(line))}`);
       onClose();
     }, '取消品項失敗');
 
@@ -481,7 +497,9 @@ function VoidDialog({
           </button>
         ))}
       </div>
-      <p className="field-hint">整筆品項都會取消並從帳單扣除，廚房畫面會顯示。</p>
+      <p className="warning-note">
+        這筆品項已收款，取消後請手動退款 {formatMoney(lineAmount(line))}。廚房畫面會顯示已取消。
+      </p>
     </Modal>
   );
 }

@@ -5,6 +5,7 @@ import { catalogQuery } from './data/catalogQuery';
 import type { Repository } from './data/repository';
 import { useLiveState } from './data/useLiveState';
 import { emptyCatalog, type Actions, AppContext, type AppContextValue, type Draft } from './appContext';
+import { OrderRejectedError } from './domain';
 
 interface AppProps {
   repository: Repository;
@@ -18,6 +19,10 @@ export function App({ repository, userLabel, onSignOut }: AppProps) {
   const live = useLiveState(repository);
   const { dispatch } = live;
   const { data, isPending } = useQuery(catalogQuery(repository));
+  const reloadCatalog = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: catalogQuery(repository).queryKey }),
+    [queryClient, repository],
+  );
   const catalog = data ?? emptyCatalog;
   // A failed background refresh keeps showing the menu it already has.
   const catalogState: AppContextValue['catalogState'] = data ? 'ready' : isPending ? 'loading' : 'failed';
@@ -49,7 +54,7 @@ export function App({ repository, userLabel, onSignOut }: AppProps) {
     () => ({
       async seedCatalog() {
         await repository.seedCatalog();
-        await queryClient.invalidateQueries({ queryKey: catalogQuery(repository).queryKey });
+        await reloadCatalog();
       },
       async openTable(input) {
         const check = await repository.openTable(input);
@@ -57,9 +62,18 @@ export function App({ repository, userLabel, onSignOut }: AppProps) {
         dispatch({ type: 'seating/upsert', seating: { tableId: input.tableId, checkId: check.id } });
         return check;
       },
-      async sendTicket(ticket) {
-        await repository.sendTicket(ticket);
-        dispatch({ type: 'ticket/upsert', ticket });
+      async placeAndPay(order, paymentMethod) {
+        try {
+          await repository.placeStaffOrder(order);
+        } catch (error) {
+          // A rejected order usually means this device has an outdated menu.
+          if (error instanceof OrderRejectedError) void reloadCatalog();
+          throw error;
+        }
+        (await repository.confirmOrderPayment(order.orderId, paymentMethod)).forEach(dispatch);
+      },
+      async confirmOrderPayment(order, paymentMethod) {
+        (await repository.confirmOrderPayment(order.id, paymentMethod)).forEach(dispatch);
       },
       async setTicketStatus(ticket, status) {
         await repository.setTicketStatus(ticket.id, status);
@@ -69,19 +83,12 @@ export function App({ repository, userLabel, onSignOut }: AppProps) {
         await repository.voidLine(lineVoid);
         dispatch({ type: 'void/upsert', lineVoid });
       },
-      async payCheck(check, paymentMethod, total) {
-        await repository.payCheck({ checkId: check.id, paymentMethod, total });
-        dispatch({
-          type: 'check/upsert',
-          check: { ...check, status: 'PAID', paymentMethod, total, paidAt: new Date().toISOString() },
-        });
-      },
       async clearTable(tableId) {
         await repository.clearTable(tableId);
         dispatch({ type: 'seating/delete', tableId });
       },
     }),
-    [repository, queryClient, dispatch],
+    [repository, reloadCatalog, dispatch],
   );
 
   const context = useMemo(

@@ -1,28 +1,45 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import type { LiveStatus } from './data/useLiveState';
-import type {
-  Catalog,
-  GuestCheck,
-  KitchenTicket,
-  LineVoid,
-  PaymentMethod,
-  TicketLine,
-  TicketStatus,
+import {
+  ORDER_REJECTION_MESSAGE,
+  OrderRejectedError,
+  type Catalog,
+  type GuestCheck,
+  type KitchenTicket,
+  type LineVoid,
+  type Order,
+  type OrderItemInput,
+  type PaymentMethod,
+  type TicketLine,
+  type TicketStatus,
 } from './domain';
 
-/** Lines not yet sent. The ticket id is kept so a retried send cannot duplicate. */
+export interface DraftLine extends TicketLine {
+  choiceIds: string[];
+}
+
+/**
+ * Lines not yet ordered. The order id is kept so a retried payment cannot
+ * duplicate, and changes whenever the lines do, because a retry returns the
+ * order as first placed.
+ */
 export interface Draft {
-  ticketId: string;
-  lines: TicketLine[];
+  orderId: string;
+  lines: DraftLine[];
 }
 
 export interface Actions {
   seedCatalog(): Promise<void>;
   openTable(input: { tableId: string; tableName: string; guestCount: number }): Promise<GuestCheck>;
-  sendTicket(ticket: KitchenTicket): Promise<void>;
+  /** Takes payment for a staff-entered order and sends it to the kitchen. */
+  placeAndPay(
+    order: { orderId: string; tableId: string; items: OrderItemInput[]; expectedTotal: number },
+    paymentMethod: PaymentMethod,
+  ): Promise<void>;
+  /** Takes payment for a customer's order and sends it to the kitchen. */
+  confirmOrderPayment(order: Order, paymentMethod: PaymentMethod): Promise<void>;
   setTicketStatus(ticket: KitchenTicket, status: TicketStatus): Promise<void>;
   voidLine(lineVoid: LineVoid): Promise<void>;
-  payCheck(check: GuestCheck, paymentMethod: PaymentMethod, total: number): Promise<void>;
   clearTable(tableId: string): Promise<void>;
 }
 
@@ -57,7 +74,12 @@ export function useAction() {
         await action();
       } catch (error) {
         console.error(failureMessage, error);
-        notify(`${failureMessage}，請再試一次`, true);
+        notify(
+          error instanceof OrderRejectedError
+            ? ORDER_REJECTION_MESSAGE[error.code]
+            : `${failureMessage}，請再試一次`,
+          true,
+        );
       } finally {
         setBusy(false);
       }

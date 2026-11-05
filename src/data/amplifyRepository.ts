@@ -8,41 +8,15 @@ import {
   type GuestCheck,
   type KitchenTicket,
   type LineVoid,
+  type LiveEvent,
   type LiveState,
+  type Order,
   type Seating,
   type TicketStatus,
 } from '../domain';
+import { listAll, type ModelResult, toCategories, toMenuItems, unwrap } from './amplifyHelpers';
 import type { Repository } from './repository';
 import { sampleCatalog } from './sampleCatalog';
-
-interface ModelResult<T> {
-  data: T;
-  errors?: readonly { message: string; errorType?: string }[];
-  nextToken?: string | null;
-}
-
-function unwrap<T>({ data, errors }: ModelResult<T>): T {
-  if (errors?.length) {
-    if (errors.some((error) => error.errorType?.includes('ConditionalCheckFailed'))) {
-      throw new ConflictError(errors[0].message);
-    }
-    throw new Error(errors.map((error) => error.message).join('; '));
-  }
-  return data;
-}
-
-async function listAll<T>(
-  fetchPage: (nextToken?: string) => Promise<ModelResult<T[]>>,
-): Promise<T[]> {
-  const items: T[] = [];
-  let nextToken: string | undefined;
-  do {
-    const page = await fetchPage(nextToken);
-    items.push(...unwrap(page));
-    nextToken = page.nextToken ?? undefined;
-  } while (nextToken);
-  return items;
-}
 
 const ignoreConflict = (error: unknown) => {
   if (!(error instanceof ConflictError)) throw error;
@@ -53,19 +27,29 @@ const toSeating = (raw: Schema['Seating']['type']): Seating => ({
   checkId: raw.checkId,
 });
 
-const toCheck = (raw: Schema['GuestCheck']['type']): GuestCheck => ({
+const toCheck = (raw: Schema['CheckRecord']['type'] & { guestCount?: number | null }): GuestCheck => ({
   id: raw.id,
   tableId: raw.tableId,
   tableName: raw.tableName,
   guestCount: raw.guestCount,
-  status: raw.status,
   openedAt: raw.openedAt,
-  paidAt: raw.paidAt,
-  paymentMethod: raw.paymentMethod,
-  total: raw.total,
 });
 
-const toTicket = (raw: Schema['KitchenTicket']['type']): KitchenTicket => ({
+const toOrder = (raw: Schema['OrderRecord']['type']): Order => ({
+  id: raw.id,
+  tableId: raw.tableId,
+  tableName: raw.tableName,
+  checkId: raw.checkId,
+  status: raw.status,
+  lines: raw.lines,
+  total: raw.total,
+  createdAt: raw.createdAt,
+  expiresAt: raw.expiresAt,
+  paymentMethod: raw.paymentMethod,
+  paidAt: raw.paidAt,
+});
+
+const toTicket = (raw: Schema['TicketRecord']['type']): KitchenTicket => ({
   id: raw.id,
   checkId: raw.checkId,
   tableName: raw.tableName,
@@ -84,12 +68,23 @@ const toVoid = (raw: Schema['LineVoid']['type']): LineVoid => ({
   voidedAt: raw.voidedAt,
 });
 
+const paymentEvents = ({
+  order,
+  ticket,
+  check,
+}: NonNullable<Schema['PaymentConfirmation']['type']>): LiveEvent[] => [
+  ...(check ? [{ type: 'check/upsert', check: toCheck(check) } as const] : []),
+  { type: 'seating/upsert', seating: { tableId: order.tableId, checkId: ticket.checkId } },
+  { type: 'order/upsert', order: toOrder(order) },
+  { type: 'ticket/upsert', ticket: toTicket(ticket) },
+];
+
 const byId = <T,>(items: T[], key: (item: T) => string): Record<string, T> =>
   Object.fromEntries(items.map((item) => [key(item), item]));
 
 /** Call after Amplify.configure(). */
 export function createAmplifyRepository(): Repository {
-  const { models } = generateClient<Schema>();
+  const { models, mutations, subscriptions: customSubscriptions } = generateClient<Schema>();
 
   return {
     mode: 'amplify',
@@ -100,31 +95,20 @@ export function createAmplifyRepository(): Repository {
         listAll((nextToken) => models.MenuCategory.list({ nextToken })),
         listAll((nextToken) => models.MenuItem.list({ nextToken })),
       ]);
-      const bySortOrder = (a: { sortOrder: number }, b: { sortOrder: number }) =>
-        a.sortOrder - b.sortOrder;
       return {
         tables: tables
-          .map(({ id, name, seats, sortOrder }) => ({ id, name, seats, sortOrder }))
-          .sort(bySortOrder),
-        categories: categories
-          .map(({ id, name, sortOrder }) => ({ id, name, sortOrder }))
-          .sort(bySortOrder),
-        items: items
-          .map(({ id, categoryId, name, price, sortOrder, optionGroups }) => ({
-            id,
-            categoryId,
-            name,
-            price,
-            sortOrder,
-            optionGroups,
-          }))
-          .sort(bySortOrder),
+          .map(({ id, name, seats, sortOrder, qrToken }) => ({ id, name, seats, sortOrder, qrToken }))
+          .sort((a, b) => a.sortOrder - b.sortOrder),
+        categories: toCategories(categories),
+        items: toMenuItems(items),
       };
     },
 
     async seedCatalog() {
       const writes = [
-        ...sampleCatalog.tables.map((table) => models.DiningTable.create(table)),
+        ...sampleCatalog.tables.map((table) =>
+          models.DiningTable.create({ ...table, qrToken: crypto.randomUUID() }),
+        ),
         ...sampleCatalog.categories.map((category) => models.MenuCategory.create(category)),
         ...sampleCatalog.items.map((item) => models.MenuItem.create(item)),
       ];
@@ -140,7 +124,8 @@ export function createAmplifyRepository(): Repository {
       const openCheckIds = seatings.map((seating) => seating.checkId);
 
       const activeStatuses: TicketStatus[] = ['NEW', 'PREPARING', 'READY'];
-      const [checks, checkTickets, activeTickets] = await Promise.all([
+      const [orders, checks, checkTickets, activeTickets] = await Promise.all([
+        listAll((nextToken) => models.Order.ordersByStatus({ status: 'PENDING' }, { nextToken })),
         Promise.all(openCheckIds.map(async (id) => unwrap(await models.GuestCheck.get({ id })))),
         Promise.all(
           openCheckIds.map((checkId) =>
@@ -170,6 +155,7 @@ export function createAmplifyRepository(): Repository {
         ),
         tickets: byId(tickets.map(toTicket), (ticket) => ticket.id),
         voids: byId(voids.flat().map(toVoid), (lineVoid) => lineVoid.id),
+        orders: byId(orders.map(toOrder), (order) => order.id),
       };
     },
 
@@ -204,6 +190,25 @@ export function createAmplifyRepository(): Repository {
           next: (raw) => onEvent({ type: 'void/upsert', lineVoid: toVoid(raw) }),
           error: onError,
         }),
+        // A failed mutation still notifies, with an empty result, and the caller
+        // chooses which fields a result carries. Customers can call placeOrder, so
+        // its result is checked, and the minute resync recovers anything skipped.
+        customSubscriptions.onOrderPlaced().subscribe({
+          next: (order) => {
+            if (order?.status === 'PENDING' && order.lines) {
+              onEvent({ type: 'order/upsert', order: toOrder(order) });
+            }
+          },
+          error: onError,
+        }),
+        customSubscriptions.onOrderPaid().subscribe({
+          next: (confirmation) => {
+            if (confirmation?.order && confirmation.ticket) {
+              paymentEvents(confirmation).forEach(onEvent);
+            }
+          },
+          error: onError,
+        }),
       ];
 
       const stopListening = Hub.listen('api', ({ payload }) => {
@@ -227,7 +232,6 @@ export function createAmplifyRepository(): Repository {
           tableId,
           tableName,
           guestCount,
-          status: 'OPEN',
           openedAt: new Date().toISOString(),
         }),
       );
@@ -241,12 +245,14 @@ export function createAmplifyRepository(): Repository {
       return toCheck(created);
     },
 
-    async sendTicket(ticket) {
-      try {
-        unwrap(await models.KitchenTicket.create(ticket));
-      } catch (error) {
-        ignoreConflict(error);
-      }
+    async placeStaffOrder(input) {
+      unwrap(await mutations.placeStaffOrder(input));
+    },
+
+    async confirmOrderPayment(orderId, paymentMethod) {
+      const confirmation = unwrap(await mutations.confirmOrderPayment({ orderId, paymentMethod }));
+      if (!confirmation) throw new Error('failed to confirm payment');
+      return paymentEvents(confirmation);
     },
 
     async setTicketStatus(ticketId, status) {
@@ -259,18 +265,6 @@ export function createAmplifyRepository(): Repository {
       } catch (error) {
         ignoreConflict(error);
       }
-    },
-
-    async payCheck({ checkId, paymentMethod, total }) {
-      unwrap(
-        await models.GuestCheck.update({
-          id: checkId,
-          status: 'PAID',
-          paymentMethod,
-          total,
-          paidAt: new Date().toISOString(),
-        }),
-      );
     },
 
     async clearTable(tableId) {

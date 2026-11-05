@@ -113,16 +113,15 @@ p.field-hint { margin: 12px 0 0; }
   padding: 14px; text-align: left; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface);
 }
 .table-dining { border: 2px solid var(--primary); }
-.table-paid { background: var(--surface-2); }
 .table-name { font-size: 24px; font-weight: 700; }
 .table-meta { color: var(--muted); font-size: 14px; }
 .table-amount { font-weight: 600; margin-top: auto; }
 .table-alert { background: var(--ok-bg); color: var(--ok); font-size: 13px; font-weight: 600; padding: 2px 8px; border-radius: 999px; }
-.ready-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; position: sticky; top: 0; }
+.floor-side { display: flex; flex-direction: column; gap: 16px; position: sticky; top: 0; }
+.ready-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
 .ready-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 0; border-top: 1px solid var(--border); }
 
 .table-view { height: 100%; display: grid; grid-template-columns: 1fr 380px; gap: 16px; }
-.table-view.is-paid { grid-template-columns: minmax(0, 480px); justify-content: center; }
 .menu-panel { min-height: 0; overflow: auto; }
 .tabs { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
 .tab { min-height: 48px; padding: 0 20px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); font-weight: 600; }
@@ -193,6 +192,6 @@ p.field-hint { margin: 12px 0 0; }
 @media (max-width: 860px) {
   .floor, .table-view { grid-template-columns: 1fr; }
   .table-view { height: auto; }
-  .ready-panel { position: static; }
+  .floor-side { position: static; }
   .topbar { flex-wrap: wrap; }
 }

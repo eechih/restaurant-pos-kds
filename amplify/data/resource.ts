@@ -1,9 +1,10 @@
 import { a, defineData, type ClientSchema } from '@aws-amplify/backend';
+import { orders } from '../functions/orders/resource';
 
 const schema = a
   .schema({
     TicketStatus: a.enum(['NEW', 'PREPARING', 'READY', 'SERVED']),
-    CheckStatus: a.enum(['OPEN', 'PAID']),
+    OrderStatus: a.enum(['PENDING', 'PAID', 'EXPIRED']),
     PaymentMethod: a.enum(['CASH', 'CARD']),
 
     OptionChoice: a.customType({
@@ -33,22 +34,32 @@ const schema = a
       note: a.string(),
     }),
 
-    DiningTable: a.model({
-      name: a.string().required(),
-      seats: a.integer().required(),
-      sortOrder: a.integer().required(),
-    }),
-    MenuCategory: a.model({
-      name: a.string().required(),
-      sortOrder: a.integer().required(),
-    }),
-    MenuItem: a.model({
-      categoryId: a.id().required(),
-      name: a.string().required(),
-      price: a.integer().required(),
-      sortOrder: a.integer().required(),
-      optionGroups: a.ref('OptionGroup').required().array().required(),
-    }),
+    // Not readable by customers, because qrToken is what proves which table an
+    // order is for.
+    DiningTable: a
+      .model({
+        name: a.string().required(),
+        seats: a.integer().required(),
+        sortOrder: a.integer().required(),
+        qrToken: a.string(),
+      })
+      .secondaryIndexes((index) => [index('qrToken').name('byQrToken')]),
+    MenuCategory: a
+      .model({
+        name: a.string().required(),
+        sortOrder: a.integer().required(),
+      })
+      .authorization((allow) => [allow.guest().to(['read']), allow.authenticated()]),
+    MenuItem: a
+      .model({
+        categoryId: a.id().required(),
+        name: a.string().required(),
+        price: a.integer().required(),
+        sortOrder: a.integer().required(),
+        optionGroups: a.ref('OptionGroup').required().array().required(),
+        available: a.boolean(),
+      })
+      .authorization((allow) => [allow.guest().to(['read']), allow.authenticated()]),
 
     // Keyed by table so that creating a second seating for an occupied table
     // fails on the server. This is what stops two staff opening the same table.
@@ -59,19 +70,37 @@ const schema = a
       })
       .identifier(['tableId']),
 
+    // One party's stay at a table. Payment lives on each Order.
     GuestCheck: a.model({
       tableId: a.id().required(),
       tableName: a.string().required(),
-      guestCount: a.integer().required(),
-      status: a.ref('CheckStatus').required(),
+      guestCount: a.integer(),
       openedAt: a.datetime().required(),
-      paidAt: a.datetime(),
-      paymentMethod: a.ref('PaymentMethod'),
-      total: a.integer(),
     }),
 
-    // Lines are written once. Each send to the kitchen is a separate record, so
-    // staff adding to the same table at the same time cannot overwrite each other.
+    // Written only by the orders function, which prices it on the server. Staff
+    // can read it; customers see their own through getCustomerOrder.
+    Order: a
+      .model({
+        tableId: a.id().required(),
+        tableName: a.string().required(),
+        checkId: a.id(),
+        status: a.ref('OrderStatus').required(),
+        lines: a.ref('TicketLine').required().array().required(),
+        total: a.integer().required(),
+        createdAt: a.datetime().required(),
+        expiresAt: a.datetime().required(),
+        paymentMethod: a.ref('PaymentMethod'),
+        paidAt: a.datetime(),
+      })
+      .secondaryIndexes((index) => [
+        index('status').sortKeys(['createdAt']).queryField('ordersByStatus'),
+      ])
+      .authorization((allow) => [allow.authenticated().to(['read'])]),
+
+    // Created only by the orders function, once the order is paid, so nothing
+    // reaches the kitchen unpaid. Each order is a separate record, so concurrent
+    // orders at one table cannot overwrite each other.
     KitchenTicket: a
       .model({
         checkId: a.id().required(),
@@ -84,7 +113,8 @@ const schema = a
       .secondaryIndexes((index) => [
         index('status').sortKeys(['sentAt']).queryField('ticketsByStatus'),
         index('checkId').queryField('ticketsByCheck'),
-      ]),
+      ])
+      .authorization((allow) => [allow.authenticated().to(['read', 'update'])]),
 
     // A void is its own record rather than an edit to the ticket's lines, so
     // concurrent voids on one ticket cannot overwrite each other.
@@ -98,6 +128,113 @@ const schema = a
         voidedAt: a.datetime().required(),
       })
       .secondaryIndexes((index) => [index('checkId').queryField('voidsByCheck')]),
+
+    OrderItemInput: a.customType({
+      menuItemId: a.id().required(),
+      quantity: a.integer().required(),
+      choiceIds: a.id().required().array().required(),
+      note: a.string(),
+    }),
+    // Only what a customer may see of their own order.
+    CustomerOrder: a.customType({
+      id: a.id().required(),
+      tableId: a.id().required(),
+      tableName: a.string().required(),
+      status: a.ref('OrderStatus').required(),
+      lines: a.ref('TicketLine').required().array().required(),
+      total: a.integer().required(),
+      createdAt: a.datetime().required(),
+      expiresAt: a.datetime().required(),
+      paidAt: a.datetime(),
+      ticketStatus: a.ref('TicketStatus'),
+    }),
+    OrderRecord: a.customType({
+      id: a.id().required(),
+      tableId: a.id().required(),
+      tableName: a.string().required(),
+      checkId: a.id(),
+      status: a.ref('OrderStatus').required(),
+      lines: a.ref('TicketLine').required().array().required(),
+      total: a.integer().required(),
+      createdAt: a.datetime().required(),
+      expiresAt: a.datetime().required(),
+      paymentMethod: a.ref('PaymentMethod'),
+      paidAt: a.datetime(),
+    }),
+    TicketRecord: a.customType({
+      id: a.id().required(),
+      checkId: a.id().required(),
+      tableName: a.string().required(),
+      round: a.integer().required(),
+      status: a.ref('TicketStatus').required(),
+      sentAt: a.datetime().required(),
+      lines: a.ref('TicketLine').required().array().required(),
+    }),
+    CheckRecord: a.customType({
+      id: a.id().required(),
+      tableId: a.id().required(),
+      tableName: a.string().required(),
+      openedAt: a.datetime().required(),
+    }),
+    // Carries the records themselves, because the data API reads are eventually
+    // consistent and could miss what the transaction just wrote. check is set only
+    // when this payment opened the table.
+    PaymentConfirmation: a.customType({
+      order: a.ref('OrderRecord').required(),
+      ticket: a.ref('TicketRecord').required(),
+      check: a.ref('CheckRecord'),
+    }),
+
+    placeOrder: a
+      .mutation()
+      .arguments({
+        orderId: a.id().required(),
+        tableToken: a.string().required(),
+        items: a.ref('OrderItemInput').required().array().required(),
+        expectedTotal: a.integer().required(),
+      })
+      .returns(a.ref('CustomerOrder'))
+      .authorization((allow) => [allow.guest()])
+      .handler(a.handler.function(orders)),
+    placeStaffOrder: a
+      .mutation()
+      .arguments({
+        orderId: a.id().required(),
+        tableId: a.id().required(),
+        items: a.ref('OrderItemInput').required().array().required(),
+        expectedTotal: a.integer().required(),
+      })
+      .returns(a.ref('CustomerOrder'))
+      .authorization((allow) => [allow.authenticated()])
+      .handler(a.handler.function(orders)),
+    confirmOrderPayment: a
+      .mutation()
+      .arguments({
+        orderId: a.id().required(),
+        paymentMethod: a.ref('PaymentMethod').required(),
+      })
+      .returns(a.ref('PaymentConfirmation'))
+      .authorization((allow) => [allow.authenticated()])
+      .handler(a.handler.function(orders)),
+    getCustomerOrder: a
+      .query()
+      .arguments({ orderId: a.id().required() })
+      .returns(a.ref('CustomerOrder'))
+      .authorization((allow) => [allow.guest(), allow.authenticated()])
+      .handler(a.handler.function(orders)),
+
+    // The function writes to DynamoDB directly, which model subscriptions do not
+    // see, so staff screens listen to these instead.
+    onOrderPlaced: a
+      .subscription()
+      .for([a.ref('placeOrder'), a.ref('placeStaffOrder')])
+      .authorization((allow) => [allow.authenticated()])
+      .handler(a.handler.custom({ entry: './passThrough.js' })),
+    onOrderPaid: a
+      .subscription()
+      .for(a.ref('confirmOrderPayment'))
+      .authorization((allow) => [allow.authenticated()])
+      .handler(a.handler.custom({ entry: './passThrough.js' })),
   })
   .authorization((allow) => [allow.authenticated()]);
 

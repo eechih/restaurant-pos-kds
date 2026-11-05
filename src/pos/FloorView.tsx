@@ -7,11 +7,14 @@ import {
   elapsedMinutes,
   formatMoney,
   isFullyVoided,
+  pendingOrders,
   tableState,
   ticketsForCheck,
   ticketsWithStatus,
   type DiningTable,
   type KitchenTicket,
+  type Order,
+  type PaymentMethod,
 } from '../domain';
 import { Modal } from '../ui/Modal';
 
@@ -59,14 +62,17 @@ export function FloorView() {
           ))}
         </div>
       </section>
-      <aside className="ready-panel" aria-label="待上菜">
-        <h2 className="section-title">待上菜 {ready.length > 0 && <span className="count">{ready.length}</span>}</h2>
-        {ready.length === 0 ? (
-          <p className="empty-note">廚房完成後會顯示在這裡</p>
-        ) : (
-          ready.map((ticket) => <ReadyTicket key={ticket.id} ticket={ticket} />)
-        )}
-      </aside>
+      <div className="floor-side">
+        <PendingOrders />
+        <aside className="ready-panel" aria-label="待上菜">
+          <h2 className="section-title">待上菜 {ready.length > 0 && <span className="count">{ready.length}</span>}</h2>
+          {ready.length === 0 ? (
+            <p className="empty-note">廚房完成後會顯示在這裡</p>
+          ) : (
+            ready.map((ticket) => <ReadyTicket key={ticket.id} ticket={ticket} />)
+          )}
+        </aside>
+      </div>
       {opening && <GuestCountDialog table={opening} onClose={() => setOpening(undefined)} />}
     </div>
   );
@@ -94,22 +100,61 @@ function TableCard({ table, onOpen }: { table: DiningTable; onOpen(): void }) {
 
   return (
     <button
-      className={status === 'PAID' ? 'table-card table-paid' : 'table-card table-dining'}
+      className="table-card table-dining"
       onClick={() => goToTable(table.id)}
     >
       <span className="table-name">{table.name}</span>
-      {status === 'PAID' ? (
-        <span className="table-meta">已結帳・待清桌</span>
-      ) : (
-        <>
-          <span className="table-meta">
-            {check.guestCount} 人・{elapsedMinutes(check.openedAt, now)} 分鐘
-          </span>
-          <span className="table-amount">{formatMoney(billTotal(live.state, check.id))}</span>
-          {readyCount > 0 && <span className="table-alert">{readyCount} 張待上菜</span>}
-        </>
-      )}
+      <span className="table-meta">
+        {check.guestCount ? `${check.guestCount} 人・` : ''}
+        {elapsedMinutes(check.openedAt, now)} 分鐘
+      </span>
+      <span className="table-amount">{formatMoney(billTotal(live.state, check.id))}</span>
+      {readyCount > 0 && <span className="table-alert">{readyCount} 張待上菜</span>}
     </button>
+  );
+}
+
+function PendingOrders() {
+  const { live } = useApp();
+  const now = useNow();
+  const orders = pendingOrders(live.state, now);
+  return (
+    <aside className="ready-panel" aria-label="待收款">
+      <h2 className="section-title">待收款 {orders.length > 0 && <span className="count">{orders.length}</span>}</h2>
+      {orders.length === 0 ? (
+        <p className="empty-note">顧客掃碼下單後會顯示在這裡，收款後才會送廚</p>
+      ) : (
+        orders.map((order) => <PendingOrder key={order.id} order={order} />)
+      )}
+    </aside>
+  );
+}
+
+function PendingOrder({ order }: { order: Order }) {
+  const { actions, notify } = useApp();
+  const { busy, run } = useAction();
+  const confirm = (method: PaymentMethod) =>
+    run(async () => {
+      await actions.confirmOrderPayment(order, method);
+      notify(`${order.tableName} 已收款並送廚`);
+    }, '確認收款失敗');
+  return (
+    <div className="ready-row">
+      <div>
+        <strong>{order.tableName}</strong> {formatMoney(order.total)}
+        <div className="line-options">
+          {order.lines.map((line) => `${line.name}×${line.quantity}`).join('、')}
+        </div>
+      </div>
+      <div className="chip-row">
+        <button className="button button-primary button-small" disabled={busy} onClick={() => confirm('CASH')}>
+          現金
+        </button>
+        <button className="button button-small" disabled={busy} onClick={() => confirm('CARD')}>
+          刷卡
+        </button>
+      </div>
+    </div>
   );
 }
 

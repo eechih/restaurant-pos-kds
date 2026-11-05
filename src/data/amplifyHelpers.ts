@@ -1,0 +1,60 @@
+import type { Schema } from '../../amplify/data/resource';
+import {
+  ConflictError,
+  ORDER_REJECTION_MESSAGE,
+  OrderRejectedError,
+  type MenuCategory,
+  type MenuItem,
+  type OrderRejection,
+} from '../domain';
+
+export interface ModelResult<T> {
+  data: T;
+  errors?: readonly { message: string; errorType?: string }[];
+  nextToken?: string | null;
+}
+
+export function unwrap<T>({ data, errors }: ModelResult<T>): T {
+  if (errors?.length) {
+    // The orders function reports a rejection by using its code as the message.
+    const rejected = errors.find((error) => Object.hasOwn(ORDER_REJECTION_MESSAGE, error.message));
+    if (rejected) throw new OrderRejectedError(rejected.message as OrderRejection);
+    if (errors.some((error) => error.errorType?.includes('ConditionalCheckFailed'))) {
+      throw new ConflictError(errors[0].message);
+    }
+    throw new Error(errors.map((error) => error.message).join('; '));
+  }
+  return data;
+}
+
+export async function listAll<T>(
+  fetchPage: (nextToken?: string) => Promise<ModelResult<T[]>>,
+): Promise<T[]> {
+  const items: T[] = [];
+  let nextToken: string | undefined;
+  do {
+    const page = await fetchPage(nextToken);
+    items.push(...unwrap(page));
+    nextToken = page.nextToken ?? undefined;
+  } while (nextToken);
+  return items;
+}
+
+const bySortOrder = (a: { sortOrder: number }, b: { sortOrder: number }) =>
+  a.sortOrder - b.sortOrder;
+
+export const toCategories = (raw: Schema['MenuCategory']['type'][]): MenuCategory[] =>
+  raw.map(({ id, name, sortOrder }) => ({ id, name, sortOrder })).sort(bySortOrder);
+
+export const toMenuItems = (raw: Schema['MenuItem']['type'][]): MenuItem[] =>
+  raw
+    .map(({ id, categoryId, name, price, sortOrder, optionGroups, available }) => ({
+      id,
+      categoryId,
+      name,
+      price,
+      sortOrder,
+      optionGroups,
+      available,
+    }))
+    .sort(bySortOrder);

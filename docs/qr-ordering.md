@@ -45,38 +45,33 @@
 
 ## 資料模型
 
-以下是方向，欄位在第 2 階段定案。
-
-```ts
-Order: a.model({
-  tableId: a.id().required(),
-  checkId: a.id().required(),
-  status: a.ref('OrderStatus').required(),  // PENDING | PAID | EXPIRED | REFUNDED
-  lines: a.ref('TicketLine').required().array().required(),  // 下單時凍結
-  total: a.integer().required(),
-  expiresAt: a.datetime().required(),
-  paymentMethod: a.ref('PaymentMethod'),
-  paidAt: a.datetime(),
-})
-```
-
-對現有模型的影響：
+`Order` 只由 `orders` Lambda 寫入，員工只能讀取（`amplify/data/resource.ts`）。
 
 | 模型或函式 | 變更 |
 |---|---|
-| `GuestCheck` | 保留，代表「這桌這次用餐」。付款狀態移到 `Order` |
-| `tableState` | 現有的 `PAID` 代表整桌結清，不符合一桌多筆付款，要重新定義 |
-| `KitchenTicket` | 內容不變，改由後端建立，ID 由 `orderId` 推導 |
-| `LineVoid` | 付款後取消品項要連動退款 |
-| `MenuItem` | 新增 `available`（售完）和 `featured`（推薦） |
-| `DiningTable` | 新增 QR token，訪客不可讀 |
+| `Order` | 新增。下單時凍結品項和金額，付款後才有 `checkId`。儲存的狀態只有 `PENDING`、`PAID` |
+| `GuestCheck` | 代表「這桌這次用餐」，付款狀態移到 `Order`。`guestCount` 改為選填，因為顧客的第一筆付款也可能開桌 |
+| `tableState` | 只分 `EMPTY`、`DINING`。有 `Seating` 就是用餐中，由員工清桌 |
+| `KitchenTicket` | 內容不變，只由 Lambda 建立，ID 由 `orderId` 推導。員工只能更新狀態 |
+| `LineVoid` | 付款後取消品項目前只提示員工手動退款，第 4 階段才連動退款 |
+| `MenuItem` | 新增 `available`（售完）。`featured` 留到第 5 階段 |
+| `DiningTable` | 新增 `qrToken`，訪客不可讀 |
 
 ## 關鍵規則
 
-- **付款確認要能重複處理：** 金流通知可能重送。用 `orderId` 推導固定的 ticket ID，再用 DynamoDB 交易同時更新訂單和建立工作單，重送也不會多一張單。
-- **金額在下單時凍結：** 購物車顯示的只是預估價。如果和伺服器算的不同，要請顧客確認後才建立訂單。
-- **售完由後端檢查：** `placeOrder` 要拒絕 `available` 為 false 的品項。付款後才發現缺貨時走退款流程。
+- **付款確認是一筆交易：** Lambda 用 DynamoDB 交易同時更新訂單、建立工作單，必要時開桌。重試會看到已付款的訂單，直接回傳結果，不會多一張單。
+- **兩筆付款同時開桌：** 較慢的交易會失敗，重試後會加入先開的那張帳單。
+- **金額在下單時凍結：** 前端送 `expectedTotal`，和伺服器算的不同就以 `PRICE_CHANGED` 拒絕。購物車顯示的只是預估價。
+- **訂單 15 分鐘後逾時：** `EXPIRED` 由 `expiresAt` 推算，不需要排程工作。逾時的訂單不能付款。
+- **售完由後端檢查：** `placeOrder` 會拒絕 `available` 為 false 的品項。
 - **顧客查單用輪詢：** 第一版不需要 `useLiveState`，用 TanStack Query 的 `refetchInterval` 即可。
+
+### 為什麼員工端另外訂閱
+
+Lambda 直接寫入 DynamoDB，模型的訂閱看不到這些變更，所以員工端改訂閱 `onOrderPlaced` 和 `onOrderPaid`。實作時要注意兩點：
+
+- **通知直接帶完整資料：** 透過 data API 讀回是最終一致的，可能讀不到交易剛寫入的資料，實測曾造成帳單少一輪。
+- **訂閱端要檢查內容：** 失敗的 mutation 也會推播空結果，而欄位由呼叫者決定。顧客能呼叫 `placeOrder`，所以不能相信這些內容。被略過的通知由每分鐘的重新同步補上。
 
 ## 前端結構
 
@@ -101,10 +96,18 @@ README 列出的兩項限制在顧客下單流程中不再存在：
 | 階段 | 內容 | 狀態 |
 |---|---|---|
 | 1. 基礎 | 導入 Router + Query，分開顧客端和員工端入口 | 已完成 |
-| 2. 下單與櫃台付款 | `Order`、`placeOrder`、權限、QR token；員工在 POS 確認收款後送廚 | 未開始 |
-| 3. 顧客端介面 | 手機版菜單、購物車、訂單狀態 | 未開始 |
+| 2. 下單與櫃台付款 | `Order`、`placeOrder`、權限、QR token；員工在 POS 確認收款後送廚 | 已完成 |
+| 3. 顧客端介面 | 手機版菜單、購物車、訂單狀態、產生 QR Code | 未開始 |
 | 4. 線上付款 | 串接金流（TapPay、綠界、藍新、LINE Pay 等）、付款通知、退款、電子發票 | 未開始 |
 | 5. 商品功能 | 推薦 → 促銷 → 人氣 | 未開始 |
+
+## 尚未處理
+
+- **QR token：** 新匯入的桌位才有 token。既有的桌位和 QR Code 的產生、列印要在第 3 階段處理。
+- **售完切換：** 後端已會檢查，但員工還沒有設定售完的畫面。
+- **濫用防護：** `placeOrder` 開放給訪客，還沒有頻率限制。未付款的單不會進廚房，但可以灌入待收款清單。
+- **逾時訂單：** 會留在資料庫裡，沒有自動清除。
+- **退款紀錄：** 取消已付款品項時只提示手動退款，沒有留下退款紀錄。
 
 ## 商品功能（第 5 階段）
 

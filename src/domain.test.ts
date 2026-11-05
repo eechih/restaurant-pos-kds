@@ -1,17 +1,22 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createDemoRepository } from './data/demoRepository';
+import { createDemoCustomerRepository, createDemoRepository } from './data/demoRepository';
 import { sampleCatalog } from './data/sampleCatalog';
 import {
   applyEvent,
   billTotal,
   buildLine,
   ConflictError,
+  effectiveOrderStatus,
   emptyLiveState,
   isFullyVoided,
   missingRequiredGroups,
   nextRound,
+  OrderRejectedError,
+  pendingOrders,
+  priceOrder,
   tableState,
+  ticketIdForOrder,
   toggleChoice,
   unitPriceOf,
   unservedTickets,
@@ -137,18 +142,13 @@ test('a fully voided ticket needs no service', () => {
   assert.equal(unservedTickets(state, 'c1').length, 0);
 });
 
-test('a table moves from empty to dining to paid and back to empty', async () => {
+test('a table moves from empty to dining and back to empty', async () => {
   const repository = createDemoRepository(memoryStorage());
   const tableId = 'table-A1';
   assert.equal(tableState(await repository.loadLiveState(), tableId), 'EMPTY');
 
-  const check = await repository.openTable({ tableId, tableName: 'A1', guestCount: 2 });
+  await repository.openTable({ tableId, tableName: 'A1', guestCount: 2 });
   assert.equal(tableState(await repository.loadLiveState(), tableId), 'DINING');
-
-  await repository.payCheck({ checkId: check.id, paymentMethod: 'CASH', total: 100 });
-  const paid = await repository.loadLiveState();
-  assert.equal(tableState(paid, tableId), 'PAID');
-  assert.equal(paid.checks[check.id].total, 100);
 
   await repository.clearTable(tableId);
   assert.equal(tableState(await repository.loadLiveState(), tableId), 'EMPTY');
@@ -162,13 +162,8 @@ test('opening an occupied table is rejected and keeps the first check', async ()
   assert.equal((await repository.loadLiveState()).seatings['table-A1'].checkId, first.id);
 });
 
-test('retrying a send or a void does not duplicate it or reset progress', async () => {
+test('retrying a void does not change it', async () => {
   const repository = createDemoRepository(memoryStorage());
-  const sent = ticket('t1', [line('a', 100)]);
-  await repository.sendTicket(sent);
-  await repository.setTicketStatus('t1', 'PREPARING');
-  await repository.sendTicket(sent);
-
   const lineVoid = {
     id: voidId('t1', 'a'),
     ticketId: 't1',
@@ -179,8 +174,160 @@ test('retrying a send or a void does not duplicate it or reset progress', async 
   };
   await repository.voidLine(lineVoid);
   await repository.voidLine({ ...lineVoid, reason: '重送' });
+  assert.equal((await repository.loadLiveState()).voids[lineVoid.id].reason, '點錯');
+});
 
-  const state = await repository.loadLiveState();
-  assert.equal(state.tickets.t1.status, 'PREPARING');
-  assert.equal(state.voids[lineVoid.id].reason, '點錯');
+const lineIds = () => {
+  let next = 0;
+  return () => `line-${++next}`;
+};
+const rejection = (code: string) => (error: unknown) =>
+  error instanceof OrderRejectedError && error.code === code;
+
+test('an order is priced from the menu, not from the customer', () => {
+  const { lines, total } = priceOrder(
+    sampleCatalog.items,
+    [
+      {
+        menuItemId: 'item-beef-noodle',
+        quantity: 2,
+        choiceIds: ['spice-hot', 'addon-egg'],
+        note: ' 不要蔥 ',
+      },
+      { menuItemId: 'item-greens', quantity: 1, choiceIds: [] },
+    ],
+    lineIds(),
+  );
+  assert.equal(total, (180 + 15) * 2 + 40);
+  assert.equal(lines[0].unitPrice, 195);
+  assert.equal(lines[0].note, '不要蔥');
+  assert.deepEqual(lines.map((priced) => priced.id), ['line-1', 'line-2']);
+});
+
+test('an order the menu does not allow is rejected', () => {
+  const noodle = 'item-beef-noodle';
+  const rejected: [string, Parameters<typeof priceOrder>[1]][] = [
+    ['INVALID_ITEMS', []],
+    ['ITEM_UNAVAILABLE', [{ menuItemId: 'no-such-item', quantity: 1, choiceIds: [] }]],
+    ['INVALID_ITEMS', [{ menuItemId: noodle, quantity: 0, choiceIds: ['spice-hot'] }]],
+    ['INVALID_ITEMS', [{ menuItemId: noodle, quantity: -1, choiceIds: ['spice-hot'] }]],
+    ['INVALID_ITEMS', [{ menuItemId: noodle, quantity: 1.5, choiceIds: ['spice-hot'] }]],
+    ['INVALID_ITEMS', [{ menuItemId: noodle, quantity: 100, choiceIds: ['spice-hot'] }]],
+    ['INVALID_ITEMS', [{ menuItemId: noodle, quantity: 1, choiceIds: [] }]],
+    ['INVALID_ITEMS', [{ menuItemId: noodle, quantity: 1, choiceIds: ['spice-hot', 'spice-mild'] }]],
+    ['INVALID_ITEMS', [{ menuItemId: noodle, quantity: 1, choiceIds: ['spice-hot', 'sugar-half'] }]],
+    ['INVALID_ITEMS', [{ menuItemId: 'item-greens', quantity: 1, choiceIds: [], note: 'x'.repeat(201) }]],
+  ];
+  for (const [code, inputs] of rejected) {
+    assert.throws(() => priceOrder(sampleCatalog.items, inputs, lineIds()), rejection(code), JSON.stringify(inputs));
+  }
+});
+
+test('a sold out item cannot be ordered', () => {
+  const menu = [{ ...item('item-greens'), available: false }];
+  assert.throws(
+    () => priceOrder(menu, [{ menuItemId: 'item-greens', quantity: 1, choiceIds: [] }], lineIds()),
+    rejection('ITEM_UNAVAILABLE'),
+  );
+});
+
+test('an unpaid order stops being pending once it expires', () => {
+  const order = { status: 'PENDING', expiresAt: '2026-11-04T10:15:00.000Z' } as const;
+  const expiry = new Date(order.expiresAt).getTime();
+  assert.equal(effectiveOrderStatus(order, expiry - 1), 'PENDING');
+  assert.equal(effectiveOrderStatus(order, expiry), 'EXPIRED');
+  assert.equal(effectiveOrderStatus({ ...order, status: 'PAID' }, expiry), 'PAID');
+});
+
+const greens = [{ menuItemId: 'item-greens', quantity: 1, choiceIds: [] }];
+
+async function demoRestaurant() {
+  const storage = memoryStorage();
+  const staff = createDemoRepository(storage);
+  const customer = createDemoCustomerRepository(storage);
+  await staff.seedCatalog();
+  const table = (await staff.getCatalog()).tables[0];
+  assert.ok(table.qrToken);
+  return { staff, customer, table, tableToken: table.qrToken };
+}
+
+test('the kitchen gets nothing until the order is paid', async () => {
+  const { staff, customer, table, tableToken } = await demoRestaurant();
+
+  const placed = await customer.placeOrder({ orderId: 'o1', tableToken, items: greens, expectedTotal: 40 });
+  assert.equal(placed.status, 'PENDING');
+  assert.equal(placed.ticketStatus, undefined);
+  let state = await staff.loadLiveState();
+  assert.deepEqual(state.tickets, {});
+  assert.equal(tableState(state, table.id), 'EMPTY', 'an unpaid order does not occupy the table');
+  assert.deepEqual(pendingOrders(state, Date.now()).map((order) => order.id), ['o1']);
+
+  await staff.confirmOrderPayment('o1', 'CASH');
+  state = await staff.loadLiveState();
+  const ticket = state.tickets[ticketIdForOrder('o1')];
+  assert.equal(ticket.status, 'NEW');
+  assert.equal(ticket.lines[0].unitPrice, 40);
+  assert.equal(tableState(state, table.id), 'DINING', 'the first paid order opens the table');
+  assert.equal(state.orders.o1.paymentMethod, 'CASH');
+  assert.deepEqual(pendingOrders(state, Date.now()), []);
+
+  const paid = await customer.getOrder('o1');
+  assert.equal(paid?.status, 'PAID');
+  assert.equal(paid?.ticketStatus, 'NEW');
+});
+
+test('each order at a table becomes the next round on the same check', async () => {
+  const { staff, customer, table, tableToken } = await demoRestaurant();
+  await customer.placeOrder({ orderId: 'o1', tableToken, items: greens, expectedTotal: 40 });
+  await customer.placeOrder({ orderId: 'o2', tableToken, items: greens, expectedTotal: 40 });
+  await staff.confirmOrderPayment('o1', 'CASH');
+  await staff.confirmOrderPayment('o2', 'CARD');
+
+  const state = await staff.loadLiveState();
+  const first = state.tickets[ticketIdForOrder('o1')];
+  const second = state.tickets[ticketIdForOrder('o2')];
+  assert.equal(first.checkId, state.seatings[table.id].checkId);
+  assert.equal(second.checkId, first.checkId);
+  assert.deepEqual([first.round, second.round], [1, 2]);
+  assert.equal(billTotal(state, first.checkId), 80);
+});
+
+test('retrying an order or a payment does not duplicate it or reset progress', async () => {
+  const { staff, customer, tableToken } = await demoRestaurant();
+  const input = { orderId: 'o1', tableToken, items: greens, expectedTotal: 40 };
+  const first = await customer.placeOrder(input);
+  assert.deepEqual(await customer.placeOrder(input), first);
+
+  await staff.confirmOrderPayment('o1', 'CASH');
+  const ticketId = ticketIdForOrder('o1');
+  await staff.setTicketStatus(ticketId, 'PREPARING');
+  await staff.confirmOrderPayment('o1', 'CARD');
+
+  const state = await staff.loadLiveState();
+  assert.equal(state.tickets[ticketId].status, 'PREPARING');
+  assert.equal(state.orders.o1.paymentMethod, 'CASH');
+});
+
+test('an order is rejected when the table is unknown or the price moved', async () => {
+  const { customer, tableToken } = await demoRestaurant();
+  await assert.rejects(
+    customer.placeOrder({ orderId: 'o1', tableToken: 'guessed', items: greens, expectedTotal: 40 }),
+    rejection('TABLE_NOT_FOUND'),
+  );
+  await assert.rejects(
+    customer.placeOrder({ orderId: 'o2', tableToken, items: greens, expectedTotal: 1 }),
+    rejection('PRICE_CHANGED'),
+  );
+  assert.equal(await customer.getOrder('o2'), null);
+});
+
+test('an expired order cannot be paid', async (context) => {
+  context.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-11-04T10:00:00.000Z') });
+  const { staff, customer, tableToken } = await demoRestaurant();
+  await customer.placeOrder({ orderId: 'o1', tableToken, items: greens, expectedTotal: 40 });
+
+  context.mock.timers.setTime(Date.parse('2026-11-04T10:15:00.000Z'));
+  assert.equal((await customer.getOrder('o1'))?.status, 'EXPIRED');
+  await assert.rejects(staff.confirmOrderPayment('o1', 'CASH'), rejection('ORDER_EXPIRED'));
+  assert.deepEqual((await staff.loadLiveState()).tickets, {});
 });
