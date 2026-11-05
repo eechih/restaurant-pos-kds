@@ -97,6 +97,18 @@ export function createDemoRepository(storage: KeyValueStore = localStorage): Rep
         },
       });
     },
+    async rotateTableToken(tableId) {
+      const data = read();
+      write({
+        ...data,
+        catalog: {
+          ...data.catalog,
+          tables: data.catalog.tables.map((table) =>
+            table.id === tableId ? { ...table, qrToken: crypto.randomUUID() } : table,
+          ),
+        },
+      });
+    },
     async loadLiveState() {
       return read().live;
     },
@@ -209,6 +221,10 @@ export function createDemoCustomerRepository(
   });
 
   return {
+    async getTable(tableToken) {
+      const table = read().catalog.tables.find((candidate) => candidate.qrToken === tableToken);
+      return table ? { name: table.name } : null;
+    },
     async getMenu() {
       const { categories, items } = read().catalog;
       return { categories, items };

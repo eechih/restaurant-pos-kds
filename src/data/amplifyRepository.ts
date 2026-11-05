@@ -119,6 +119,10 @@ export function createAmplifyRepository(): Repository {
       );
     },
 
+    async rotateTableToken(tableId) {
+      unwrap(await models.DiningTable.update({ id: tableId, qrToken: crypto.randomUUID() }));
+    },
+
     async loadLiveState(): Promise<LiveState> {
       const seatings = await listAll((nextToken) => models.Seating.list({ nextToken }));
       const openCheckIds = seatings.map((seating) => seating.checkId);

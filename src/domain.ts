@@ -136,6 +136,9 @@ export const voidId = (ticketId: string, lineId: string) => `${ticketId}#${lineI
 /** Fixed per order, so that confirming a payment twice cannot create two tickets. */
 export const ticketIdForOrder = (orderId: string) => `order-${orderId}`;
 
+/** A short code customers can read out at the counter. Unique enough within a table. */
+export const orderCode = (orderId: string) => orderId.slice(0, 4).toUpperCase();
+
 export interface LiveState {
   seatings: Record<string, Seating>;
   checks: Record<string, GuestCheck>;

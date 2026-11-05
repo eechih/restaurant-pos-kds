@@ -14,7 +14,9 @@ interface AppProps {
 }
 
 export function App({ repository, userLabel, onSignOut }: AppProps) {
-  const isKds = useLocation({ select: (location) => location.pathname.startsWith('/kds') });
+  const pathname = useLocation({ select: (location) => location.pathname });
+  const isKds = pathname.startsWith('/kds');
+  const isQr = pathname.startsWith('/pos/qr');
   const queryClient = useQueryClient();
   const live = useLiveState(repository);
   const { dispatch } = live;
@@ -54,6 +56,10 @@ export function App({ repository, userLabel, onSignOut }: AppProps) {
     () => ({
       async seedCatalog() {
         await repository.seedCatalog();
+        await reloadCatalog();
+      },
+      async rotateTableToken(tableId) {
+        await repository.rotateTableToken(tableId);
         await reloadCatalog();
       },
       async openTable(input) {
@@ -101,8 +107,9 @@ export function App({ repository, userLabel, onSignOut }: AppProps) {
       <div className={isKds ? 'app theme-kds' : 'app'}>
         <header className="topbar">
           <nav className="topbar-nav" aria-label="主要頁面">
-            <Link to="/pos" className={isKds ? '' : 'is-active'}>POS</Link>
+            <Link to="/pos" className={isKds || isQr ? '' : 'is-active'}>POS</Link>
             <Link to="/kds" className={isKds ? 'is-active' : ''}>KDS 廚房</Link>
+            <Link to="/pos/qr" className={isQr ? 'is-active' : ''}>QR Code</Link>
           </nav>
           <div className="topbar-status">
             {repository.mode === 'demo' && (

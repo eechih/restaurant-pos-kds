@@ -1,12 +1,14 @@
 import { useNavigate } from '@tanstack/react-router';
 import { useState } from 'react';
-import { useAction, useApp, useNow } from '../appContext';
+import { useAction, useApp } from '../appContext';
+import { useNow } from '../ui/useNow';
 import {
   billTotal,
   ConflictError,
   elapsedMinutes,
   formatMoney,
   isFullyVoided,
+  orderCode,
   pendingOrders,
   tableState,
   ticketsForCheck,
@@ -141,7 +143,7 @@ function PendingOrder({ order }: { order: Order }) {
   return (
     <div className="ready-row">
       <div>
-        <strong>{order.tableName}</strong> {formatMoney(order.total)}
+        <strong>{order.tableName}</strong> #{orderCode(order.id)} {formatMoney(order.total)}
         <div className="line-options">
           {order.lines.map((line) => `${line.name}×${line.quantity}`).join('、')}
         </div>

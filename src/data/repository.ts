@@ -19,6 +19,8 @@ export interface Repository {
   readonly mode: 'amplify' | 'demo';
   getCatalog(): Promise<Catalog>;
   seedCatalog(): Promise<void>;
+  /** Issues a new QR token for the table, which stops its old QR code working. */
+  rotateTableToken(tableId: string): Promise<void>;
   loadLiveState(): Promise<LiveState>;
   subscribe(handlers: LiveHandlers): () => void;
   /** Rejects with ConflictError when the table is already occupied. */

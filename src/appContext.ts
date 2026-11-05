@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useState } from 'react';
 import type { LiveStatus } from './data/useLiveState';
 import {
   ORDER_REJECTION_MESSAGE,
@@ -30,6 +30,7 @@ export interface Draft {
 
 export interface Actions {
   seedCatalog(): Promise<void>;
+  rotateTableToken(tableId: string): Promise<void>;
   openTable(input: { tableId: string; tableName: string; guestCount: number }): Promise<GuestCheck>;
   /** Takes payment for a staff-entered order and sends it to the kitchen. */
   placeAndPay(
@@ -87,13 +88,4 @@ export function useAction() {
     [notify],
   );
   return { busy, run };
-}
-
-export function useNow(intervalMs = 15_000) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), intervalMs);
-    return () => clearInterval(timer);
-  }, [intervalMs]);
-  return now;
 }

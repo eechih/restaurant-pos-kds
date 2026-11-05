@@ -15,6 +15,9 @@ import { Route as StaffKdsRouteImport } from './routes/_staff.kds'
 import { Route as StaffPosRouteImport } from './routes/_staff.pos'
 import { Route as OrderTableTokenRouteImport } from './routes/order.$tableToken'
 import { Route as StaffPosIndexRouteImport } from './routes/_staff.pos.index'
+import { Route as StaffPosQrRouteImport } from './routes/_staff.pos.qr'
+import { Route as OrderTableTokenIndexRouteImport } from './routes/order.$tableToken.index'
+import { Route as OrderTableTokenOrderIdRouteImport } from './routes/order.$tableToken.$orderId'
 import { Route as StaffPosTableTableIdRouteImport } from './routes/_staff.pos.table.$tableId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -46,6 +49,21 @@ const StaffPosIndexRoute = StaffPosIndexRouteImport.update({
   path: '/',
   getParentRoute: () => StaffPosRoute,
 } as any)
+const StaffPosQrRoute = StaffPosQrRouteImport.update({
+  id: '/qr',
+  path: '/qr',
+  getParentRoute: () => StaffPosRoute,
+} as any)
+const OrderTableTokenIndexRoute = OrderTableTokenIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => OrderTableTokenRoute,
+} as any)
+const OrderTableTokenOrderIdRoute = OrderTableTokenOrderIdRouteImport.update({
+  id: '/$orderId',
+  path: '/$orderId',
+  getParentRoute: () => OrderTableTokenRoute,
+} as any)
 const StaffPosTableTableIdRoute = StaffPosTableTableIdRouteImport.update({
   id: '/table/$tableId',
   path: '/table/$tableId',
@@ -56,15 +74,20 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/kds': typeof StaffKdsRoute
   '/pos': typeof StaffPosRouteWithChildren
-  '/order/$tableToken': typeof OrderTableTokenRoute
+  '/order/$tableToken': typeof OrderTableTokenRouteWithChildren
+  '/pos/qr': typeof StaffPosQrRoute
+  '/order/$tableToken/$orderId': typeof OrderTableTokenOrderIdRoute
   '/pos/': typeof StaffPosIndexRoute
+  '/order/$tableToken/': typeof OrderTableTokenIndexRoute
   '/pos/table/$tableId': typeof StaffPosTableTableIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/kds': typeof StaffKdsRoute
-  '/order/$tableToken': typeof OrderTableTokenRoute
+  '/pos/qr': typeof StaffPosQrRoute
+  '/order/$tableToken/$orderId': typeof OrderTableTokenOrderIdRoute
   '/pos': typeof StaffPosIndexRoute
+  '/order/$tableToken': typeof OrderTableTokenIndexRoute
   '/pos/table/$tableId': typeof StaffPosTableTableIdRoute
 }
 export interface FileRoutesById {
@@ -73,8 +96,11 @@ export interface FileRoutesById {
   '/_staff': typeof StaffRouteWithChildren
   '/_staff/kds': typeof StaffKdsRoute
   '/_staff/pos': typeof StaffPosRouteWithChildren
-  '/order/$tableToken': typeof OrderTableTokenRoute
+  '/order/$tableToken': typeof OrderTableTokenRouteWithChildren
+  '/_staff/pos/qr': typeof StaffPosQrRoute
+  '/order/$tableToken/$orderId': typeof OrderTableTokenOrderIdRoute
   '/_staff/pos/': typeof StaffPosIndexRoute
+  '/order/$tableToken/': typeof OrderTableTokenIndexRoute
   '/_staff/pos/table/$tableId': typeof StaffPosTableTableIdRoute
 }
 export interface FileRouteTypes {
@@ -84,10 +110,20 @@ export interface FileRouteTypes {
     | '/kds'
     | '/pos'
     | '/order/$tableToken'
+    | '/pos/qr'
+    | '/order/$tableToken/$orderId'
     | '/pos/'
+    | '/order/$tableToken/'
     | '/pos/table/$tableId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/kds' | '/order/$tableToken' | '/pos' | '/pos/table/$tableId'
+  to:
+    | '/'
+    | '/kds'
+    | '/pos/qr'
+    | '/order/$tableToken/$orderId'
+    | '/pos'
+    | '/order/$tableToken'
+    | '/pos/table/$tableId'
   id:
     | '__root__'
     | '/'
@@ -95,14 +131,17 @@ export interface FileRouteTypes {
     | '/_staff/kds'
     | '/_staff/pos'
     | '/order/$tableToken'
+    | '/_staff/pos/qr'
+    | '/order/$tableToken/$orderId'
     | '/_staff/pos/'
+    | '/order/$tableToken/'
     | '/_staff/pos/table/$tableId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   StaffRoute: typeof StaffRouteWithChildren
-  OrderTableTokenRoute: typeof OrderTableTokenRoute
+  OrderTableTokenRoute: typeof OrderTableTokenRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
@@ -149,6 +188,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof StaffPosIndexRouteImport
       parentRoute: typeof StaffPosRoute
     }
+    '/_staff/pos/qr': {
+      id: '/_staff/pos/qr'
+      path: '/qr'
+      fullPath: '/pos/qr'
+      preLoaderRoute: typeof StaffPosQrRouteImport
+      parentRoute: typeof StaffPosRoute
+    }
+    '/order/$tableToken/': {
+      id: '/order/$tableToken/'
+      path: '/'
+      fullPath: '/order/$tableToken/'
+      preLoaderRoute: typeof OrderTableTokenIndexRouteImport
+      parentRoute: typeof OrderTableTokenRoute
+    }
+    '/order/$tableToken/$orderId': {
+      id: '/order/$tableToken/$orderId'
+      path: '/$orderId'
+      fullPath: '/order/$tableToken/$orderId'
+      preLoaderRoute: typeof OrderTableTokenOrderIdRouteImport
+      parentRoute: typeof OrderTableTokenRoute
+    }
     '/_staff/pos/table/$tableId': {
       id: '/_staff/pos/table/$tableId'
       path: '/table/$tableId'
@@ -160,11 +220,13 @@ declare module '@tanstack/react-router' {
 }
 
 interface StaffPosRouteChildren {
+  StaffPosQrRoute: typeof StaffPosQrRoute
   StaffPosIndexRoute: typeof StaffPosIndexRoute
   StaffPosTableTableIdRoute: typeof StaffPosTableTableIdRoute
 }
 
 const StaffPosRouteChildren: StaffPosRouteChildren = {
+  StaffPosQrRoute: StaffPosQrRoute,
   StaffPosIndexRoute: StaffPosIndexRoute,
   StaffPosTableTableIdRoute: StaffPosTableTableIdRoute,
 }
@@ -185,10 +247,24 @@ const StaffRouteChildren: StaffRouteChildren = {
 
 const StaffRouteWithChildren = StaffRoute._addFileChildren(StaffRouteChildren)
 
+interface OrderTableTokenRouteChildren {
+  OrderTableTokenOrderIdRoute: typeof OrderTableTokenOrderIdRoute
+  OrderTableTokenIndexRoute: typeof OrderTableTokenIndexRoute
+}
+
+const OrderTableTokenRouteChildren: OrderTableTokenRouteChildren = {
+  OrderTableTokenOrderIdRoute: OrderTableTokenOrderIdRoute,
+  OrderTableTokenIndexRoute: OrderTableTokenIndexRoute,
+}
+
+const OrderTableTokenRouteWithChildren = OrderTableTokenRoute._addFileChildren(
+  OrderTableTokenRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   StaffRoute: StaffRouteWithChildren,
-  OrderTableTokenRoute: OrderTableTokenRoute,
+  OrderTableTokenRoute: OrderTableTokenRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

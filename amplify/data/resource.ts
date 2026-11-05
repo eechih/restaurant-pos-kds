@@ -49,7 +49,11 @@ const schema = a
         name: a.string().required(),
         sortOrder: a.integer().required(),
       })
-      .authorization((allow) => [allow.guest().to(['read']), allow.authenticated()]),
+      .authorization((allow) => [
+        allow.guest().to(['read']),
+        allow.authenticated('identityPool').to(['read']),
+        allow.authenticated(),
+      ]),
     MenuItem: a
       .model({
         categoryId: a.id().required(),
@@ -59,7 +63,11 @@ const schema = a
         optionGroups: a.ref('OptionGroup').required().array().required(),
         available: a.boolean(),
       })
-      .authorization((allow) => [allow.guest().to(['read']), allow.authenticated()]),
+      .authorization((allow) => [
+        allow.guest().to(['read']),
+        allow.authenticated('identityPool').to(['read']),
+        allow.authenticated(),
+      ]),
 
     // Keyed by table so that creating a second seating for an occupied table
     // fails on the server. This is what stops two staff opening the same table.
@@ -148,6 +156,7 @@ const schema = a
       paidAt: a.datetime(),
       ticketStatus: a.ref('TicketStatus'),
     }),
+    CustomerTable: a.customType({ name: a.string().required() }),
     OrderRecord: a.customType({
       id: a.id().required(),
       tableId: a.id().required(),
@@ -194,7 +203,7 @@ const schema = a
         expectedTotal: a.integer().required(),
       })
       .returns(a.ref('CustomerOrder'))
-      .authorization((allow) => [allow.guest()])
+      .authorization((allow) => [allow.guest(), allow.authenticated('identityPool')])
       .handler(a.handler.function(orders)),
     placeStaffOrder: a
       .mutation()
@@ -220,7 +229,17 @@ const schema = a
       .query()
       .arguments({ orderId: a.id().required() })
       .returns(a.ref('CustomerOrder'))
-      .authorization((allow) => [allow.guest(), allow.authenticated()])
+      .authorization((allow) => [
+        allow.guest(),
+        allow.authenticated('identityPool'),
+        allow.authenticated(),
+      ])
+      .handler(a.handler.function(orders)),
+    getCustomerTable: a
+      .query()
+      .arguments({ tableToken: a.string().required() })
+      .returns(a.ref('CustomerTable'))
+      .authorization((allow) => [allow.guest(), allow.authenticated('identityPool')])
       .handler(a.handler.function(orders)),
 
     // The function writes to DynamoDB directly, which model subscriptions do not

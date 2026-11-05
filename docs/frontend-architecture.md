@@ -56,7 +56,9 @@
 | `#/pos` | `_staff.pos.index.tsx` | `FloorView` | 是 |
 | `#/pos/table/$tableId` | `_staff.pos.table.$tableId.tsx` | `TableView` | 是 |
 | `#/kds` | `_staff.kds.tsx` | `KdsPage` | 是 |
-| `#/order/$tableToken` | `order.$tableToken.tsx` | 顧客點餐（目前是占位頁） | 否 |
+| `#/pos/qr` | `_staff.pos.qr.tsx` | `QrCodesPage` | 是 |
+| `#/order/$tableToken` | `order.$tableToken.index.tsx` | 顧客菜單（`MenuPage`） | 否 |
+| `#/order/$tableToken/$orderId` | `order.$tableToken.$orderId.tsx` | 顧客訂單狀態（`OrderStatusPage`） | 否 |
 
 - **`_staff` 版面：** 員工頁面都掛在這層底下。它透過 `src/staffApp.tsx` 按需載入後端實作、登入介面和 `App`，所以顧客端不會下載這些程式碼，新增員工頁面時也要放在這層底下。
 - **網址：** 使用 hash history，靜態託管不需要 rewrite 設定。

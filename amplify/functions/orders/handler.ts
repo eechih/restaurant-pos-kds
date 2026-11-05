@@ -280,6 +280,10 @@ export const handler = async ({ fieldName, arguments: args }: Event) => {
       );
     case 'confirmOrderPayment':
       return confirmPayment(args.orderId, args.paymentMethod);
+    case 'getCustomerTable': {
+      const table = await tableForToken(args.tableToken);
+      return table ? { name: table.name } : null;
+    }
     case 'getCustomerOrder': {
       const order = await getOrder(args.orderId);
       return order ? toCustomerOrder(order) : null;

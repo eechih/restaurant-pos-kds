@@ -23,6 +23,10 @@ export function createAmplifyCustomerRepository(): CustomerRepository {
   const { models, mutations, queries } = generateClient<Schema>({ authMode: 'identityPool' });
 
   return {
+    async getTable(tableToken) {
+      const table = unwrap(await queries.getCustomerTable({ tableToken }));
+      return table ? { name: table.name } : null;
+    },
     async getMenu() {
       const [categories, items] = await Promise.all([
         listAll((nextToken) => models.MenuCategory.list({ nextToken })),
