@@ -5,6 +5,7 @@ import { catalogQuery } from './data/catalogQuery';
 import type { Repository } from './data/repository';
 import { useLiveState } from './data/useLiveState';
 import { emptyCatalog, type Actions, AppContext, type AppContextValue, type Draft } from './appContext';
+import { ArrivalAlert } from './ArrivalAlert';
 import { OrderRejectedError } from './domain';
 
 interface AppProps {
@@ -17,6 +18,7 @@ export function App({ repository, userLabel, onSignOut }: AppProps) {
   const pathname = useLocation({ select: (location) => location.pathname });
   const isKds = pathname.startsWith('/kds');
   const isQr = pathname.startsWith('/pos/qr');
+  const isAvailability = pathname.startsWith('/pos/availability');
   const queryClient = useQueryClient();
   const live = useLiveState(repository);
   const { dispatch } = live;
@@ -56,6 +58,10 @@ export function App({ repository, userLabel, onSignOut }: AppProps) {
     () => ({
       async seedCatalog() {
         await repository.seedCatalog();
+        await reloadCatalog();
+      },
+      async setItemAvailable(itemId, available) {
+        await repository.setItemAvailable(itemId, available);
         await reloadCatalog();
       },
       async rotateTableToken(tableId) {
@@ -107,11 +113,13 @@ export function App({ repository, userLabel, onSignOut }: AppProps) {
       <div className={isKds ? 'app theme-kds' : 'app'}>
         <header className="topbar">
           <nav className="topbar-nav" aria-label="主要頁面">
-            <Link to="/pos" className={isKds || isQr ? '' : 'is-active'}>POS</Link>
+            <Link to="/pos" className={isKds || isQr || isAvailability ? '' : 'is-active'}>POS</Link>
             <Link to="/kds" className={isKds ? 'is-active' : ''}>KDS 廚房</Link>
+            <Link to="/pos/availability" className={isAvailability ? 'is-active' : ''}>售完管理</Link>
             <Link to="/pos/qr" className={isQr ? 'is-active' : ''}>QR Code</Link>
           </nav>
           <div className="topbar-status">
+            <ArrivalAlert isKds={isKds} />
             {repository.mode === 'demo' && (
               <>
                 <span className="badge badge-warn">本機展示模式</span>

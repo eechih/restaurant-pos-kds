@@ -119,6 +119,10 @@ export function createAmplifyRepository(): Repository {
       );
     },
 
+    async setItemAvailable(itemId, available) {
+      unwrap(await models.MenuItem.update({ id: itemId, available }));
+    },
+
     async rotateTableToken(tableId) {
       unwrap(await models.DiningTable.update({ id: tableId, qrToken: crypto.randomUUID() }));
     },

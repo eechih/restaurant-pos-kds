@@ -19,6 +19,7 @@ export interface Repository {
   readonly mode: 'amplify' | 'demo';
   getCatalog(): Promise<Catalog>;
   seedCatalog(): Promise<void>;
+  setItemAvailable(itemId: string, available: boolean): Promise<void>;
   /** Issues a new QR token for the table, which stops its old QR code working. */
   rotateTableToken(tableId: string): Promise<void>;
   loadLiveState(): Promise<LiveState>;

@@ -15,6 +15,7 @@ import { Route as StaffKdsRouteImport } from './routes/_staff.kds'
 import { Route as StaffPosRouteImport } from './routes/_staff.pos'
 import { Route as OrderTableTokenRouteImport } from './routes/order.$tableToken'
 import { Route as StaffPosIndexRouteImport } from './routes/_staff.pos.index'
+import { Route as StaffPosAvailabilityRouteImport } from './routes/_staff.pos.availability'
 import { Route as StaffPosQrRouteImport } from './routes/_staff.pos.qr'
 import { Route as OrderTableTokenIndexRouteImport } from './routes/order.$tableToken.index'
 import { Route as OrderTableTokenOrderIdRouteImport } from './routes/order.$tableToken.$orderId'
@@ -49,6 +50,11 @@ const StaffPosIndexRoute = StaffPosIndexRouteImport.update({
   path: '/',
   getParentRoute: () => StaffPosRoute,
 } as any)
+const StaffPosAvailabilityRoute = StaffPosAvailabilityRouteImport.update({
+  id: '/availability',
+  path: '/availability',
+  getParentRoute: () => StaffPosRoute,
+} as any)
 const StaffPosQrRoute = StaffPosQrRouteImport.update({
   id: '/qr',
   path: '/qr',
@@ -75,6 +81,7 @@ export interface FileRoutesByFullPath {
   '/kds': typeof StaffKdsRoute
   '/pos': typeof StaffPosRouteWithChildren
   '/order/$tableToken': typeof OrderTableTokenRouteWithChildren
+  '/pos/availability': typeof StaffPosAvailabilityRoute
   '/pos/qr': typeof StaffPosQrRoute
   '/order/$tableToken/$orderId': typeof OrderTableTokenOrderIdRoute
   '/pos/': typeof StaffPosIndexRoute
@@ -84,6 +91,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/kds': typeof StaffKdsRoute
+  '/pos/availability': typeof StaffPosAvailabilityRoute
   '/pos/qr': typeof StaffPosQrRoute
   '/order/$tableToken/$orderId': typeof OrderTableTokenOrderIdRoute
   '/pos': typeof StaffPosIndexRoute
@@ -97,6 +105,7 @@ export interface FileRoutesById {
   '/_staff/kds': typeof StaffKdsRoute
   '/_staff/pos': typeof StaffPosRouteWithChildren
   '/order/$tableToken': typeof OrderTableTokenRouteWithChildren
+  '/_staff/pos/availability': typeof StaffPosAvailabilityRoute
   '/_staff/pos/qr': typeof StaffPosQrRoute
   '/order/$tableToken/$orderId': typeof OrderTableTokenOrderIdRoute
   '/_staff/pos/': typeof StaffPosIndexRoute
@@ -110,6 +119,7 @@ export interface FileRouteTypes {
     | '/kds'
     | '/pos'
     | '/order/$tableToken'
+    | '/pos/availability'
     | '/pos/qr'
     | '/order/$tableToken/$orderId'
     | '/pos/'
@@ -119,6 +129,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/kds'
+    | '/pos/availability'
     | '/pos/qr'
     | '/order/$tableToken/$orderId'
     | '/pos'
@@ -131,6 +142,7 @@ export interface FileRouteTypes {
     | '/_staff/kds'
     | '/_staff/pos'
     | '/order/$tableToken'
+    | '/_staff/pos/availability'
     | '/_staff/pos/qr'
     | '/order/$tableToken/$orderId'
     | '/_staff/pos/'
@@ -188,6 +200,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof StaffPosIndexRouteImport
       parentRoute: typeof StaffPosRoute
     }
+    '/_staff/pos/availability': {
+      id: '/_staff/pos/availability'
+      path: '/availability'
+      fullPath: '/pos/availability'
+      preLoaderRoute: typeof StaffPosAvailabilityRouteImport
+      parentRoute: typeof StaffPosRoute
+    }
     '/_staff/pos/qr': {
       id: '/_staff/pos/qr'
       path: '/qr'
@@ -220,12 +239,14 @@ declare module '@tanstack/react-router' {
 }
 
 interface StaffPosRouteChildren {
+  StaffPosAvailabilityRoute: typeof StaffPosAvailabilityRoute
   StaffPosQrRoute: typeof StaffPosQrRoute
   StaffPosIndexRoute: typeof StaffPosIndexRoute
   StaffPosTableTableIdRoute: typeof StaffPosTableTableIdRoute
 }
 
 const StaffPosRouteChildren: StaffPosRouteChildren = {
+  StaffPosAvailabilityRoute: StaffPosAvailabilityRoute,
   StaffPosQrRoute: StaffPosQrRoute,
   StaffPosIndexRoute: StaffPosIndexRoute,
   StaffPosTableTableIdRoute: StaffPosTableTableIdRoute,

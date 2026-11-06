@@ -30,6 +30,7 @@ export interface Draft {
 
 export interface Actions {
   seedCatalog(): Promise<void>;
+  setItemAvailable(itemId: string, available: boolean): Promise<void>;
   rotateTableToken(tableId: string): Promise<void>;
   openTable(input: { tableId: string; tableName: string; guestCount: number }): Promise<GuestCheck>;
   /** Takes payment for a staff-entered order and sends it to the kitchen. */

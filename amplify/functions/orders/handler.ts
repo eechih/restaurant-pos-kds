@@ -15,6 +15,7 @@ import {
   OrderRejectedError,
   priceOrder,
   ticketIdForOrder,
+  voidId,
   type KitchenTicket,
   type MenuItem,
   type Order,
@@ -38,6 +39,7 @@ const TABLES = {
   ticket: tableName('KITCHENTICKET'),
   check: tableName('GUESTCHECK'),
   seating: tableName('SEATING'),
+  lineVoid: tableName('LINEVOID'),
 };
 
 /** Amplify's data API expects these on every record it reads. */
@@ -52,6 +54,21 @@ const getItem = async <T>(TableName: string, Key: Record<string, string>) =>
 
 async function getOrder(orderId: string) {
   return getItem<Order>(TABLES.order, { id: orderId });
+}
+
+async function voidedLineIds(order: Order) {
+  const ticketId = ticketIdForOrder(order.id);
+  const { Responses } = await db.send(
+    new BatchGetCommand({
+      RequestItems: {
+        [TABLES.lineVoid]: {
+          Keys: order.lines.map((line) => ({ id: voidId(ticketId, line.id) })),
+          ProjectionExpression: 'lineId',
+        },
+      },
+    }),
+  );
+  return (Responses?.[TABLES.lineVoid] ?? []).map((lineVoid) => lineVoid.lineId as string);
 }
 
 async function toCustomerOrder(order: Order) {
@@ -71,6 +88,7 @@ async function toCustomerOrder(order: Order) {
     expiresAt: order.expiresAt,
     paidAt: order.paidAt,
     ticketStatus: ticket?.status,
+    voidedLineIds: status === 'PAID' ? await voidedLineIds(order) : [],
   };
 }
 

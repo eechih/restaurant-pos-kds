@@ -155,6 +155,7 @@ const schema = a
       expiresAt: a.datetime().required(),
       paidAt: a.datetime(),
       ticketStatus: a.ref('TicketStatus'),
+      voidedLineIds: a.id().required().array().required(),
     }),
     CustomerTable: a.customType({ name: a.string().required() }),
     OrderRecord: a.customType({
@@ -246,7 +247,8 @@ const schema = a
     // see, so staff screens listen to these instead.
     onOrderPlaced: a
       .subscription()
-      .for([a.ref('placeOrder'), a.ref('placeStaffOrder')])
+      // Not placeStaffOrder: those are paid at once, so nobody is waiting on them.
+      .for(a.ref('placeOrder'))
       .authorization((allow) => [allow.authenticated()])
       .handler(a.handler.custom({ entry: './passThrough.js' })),
     onOrderPaid: a

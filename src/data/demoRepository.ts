@@ -10,6 +10,7 @@ import {
   pendingOrders,
   priceOrder,
   ticketIdForOrder,
+  voidId,
   type Catalog,
   type GuestCheck,
   type LiveEvent,
@@ -39,9 +40,12 @@ function createStore(storage: KeyValueStore) {
       : { catalog: { tables: [], categories: [], items: [] }, live: emptyLiveState };
   };
   const write = (data: DemoData) => storage.setItem(STORAGE_KEY, JSON.stringify(data));
-  const commit = (event: LiveEvent) => {
+  const apply = (event: LiveEvent) => {
     const data = read();
     write({ ...data, live: applyEvent(data.live, event) });
+  };
+  const commit = (event: LiveEvent) => {
+    apply(event);
     const channel = new BroadcastChannel(CHANNEL);
     channel.postMessage(event);
     channel.close();
@@ -79,7 +83,8 @@ function createStore(storage: KeyValueStore) {
       createdAt: new Date(now).toISOString(),
       expiresAt: new Date(now + ORDER_LIFETIME_MS).toISOString(),
     };
-    commit({ type: 'order/upsert', order });
+    // Like the real backend, only customer orders notify other screens.
+    (limitPending ? commit : apply)({ type: 'order/upsert', order });
     return order;
   };
 
@@ -104,6 +109,18 @@ export function createDemoRepository(storage: KeyValueStore = localStorage): Rep
             ...table,
             qrToken: crypto.randomUUID(),
           })),
+        },
+      });
+    },
+    async setItemAvailable(itemId, available) {
+      const data = read();
+      write({
+        ...data,
+        catalog: {
+          ...data.catalog,
+          items: data.catalog.items.map((item) =>
+            item.id === itemId ? { ...item, available } : item,
+          ),
         },
       });
     },
@@ -228,6 +245,9 @@ export function createDemoCustomerRepository(
     expiresAt: order.expiresAt,
     paidAt: order.paidAt,
     ticketStatus: read().live.tickets[ticketIdForOrder(order.id)]?.status,
+    voidedLineIds: order.lines
+      .filter((line) => read().live.voids[voidId(ticketIdForOrder(order.id), line.id)])
+      .map((line) => line.id),
   });
 
   return {

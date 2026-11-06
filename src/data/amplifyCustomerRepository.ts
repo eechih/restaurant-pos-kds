@@ -15,6 +15,7 @@ function toCustomerOrder(raw: NonNullable<Schema['CustomerOrder']['type']>): Cus
     expiresAt: raw.expiresAt,
     paidAt: raw.paidAt,
     ticketStatus: raw.ticketStatus,
+    voidedLineIds: raw.voidedLineIds,
   };
 }
 

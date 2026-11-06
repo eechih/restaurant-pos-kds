@@ -45,6 +45,11 @@ export function OrderStatusPage() {
   }
 
   const kitchen = order.ticketStatus ? KITCHEN_STATUS[order.ticketStatus] : undefined;
+  const isVoided = (lineId: string) => order.voidedLineIds.includes(lineId);
+  const refund = order.lines
+    .filter((line) => isVoided(line.id))
+    .reduce((sum, line) => sum + lineAmount(line), 0);
+  const allVoided = order.lines.every((line) => isVoided(line.id));
   return (
     <main className="customer-main">
       {/* Announces each change, because people look away while they wait. */}
@@ -59,10 +64,13 @@ export function OrderStatusPage() {
         )}
         {order.status === 'PAID' && (
           <>
-            <h2>{kitchen?.title ?? '已付款'}</h2>
-            <p>{kitchen?.detail}</p>
+            <h2>{allVoided ? '訂單已取消' : (kitchen?.title ?? '已付款')}</h2>
+            {!allVoided && <p>{kitchen?.detail}</p>}
             <div className="order-code">#{orderCode(order.id)}</div>
             <p>已付款 {formatMoney(order.total)}</p>
+            {refund > 0 && (
+              <p className="warning-note">有品項已取消，請到櫃台退款 {formatMoney(refund)}。</p>
+            )}
           </>
         )}
         {order.status === 'EXPIRED' && (
@@ -79,7 +87,7 @@ export function OrderStatusPage() {
       )}
       <ul className="order-lines cart-lines" aria-label="訂單內容">
         {order.lines.map((line) => (
-          <li key={line.id}>
+          <li key={line.id} className={isVoided(line.id) ? 'is-cancelled' : undefined}>
             <div className="cart-line-main">
               <span>
                 {line.name} × {line.quantity}
@@ -87,6 +95,7 @@ export function OrderStatusPage() {
               <span>{formatMoney(lineAmount(line))}</span>
             </div>
             <LineDetails line={line} />
+            {isVoided(line.id) && <div className="cart-unavailable">已取消</div>}
           </li>
         ))}
       </ul>

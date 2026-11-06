@@ -346,6 +346,39 @@ test('one table cannot flood the pending list, and recovers once orders clear', 
   assert.equal((await place('after-expiry')).status, 'PENDING');
 });
 
+test('a customer sees which paid lines were cancelled', async () => {
+  const { staff, customer, tableToken } = await demoRestaurant();
+  const two = [...greens, { menuItemId: 'item-tofu', quantity: 1, choiceIds: [] }];
+  const placed = await customer.placeOrder({ orderId: 'o1', tableToken, items: two, expectedTotal: 90 });
+  assert.deepEqual(placed.voidedLineIds, []);
+  await staff.confirmOrderPayment('o1', 'CASH');
+
+  const ticketId = ticketIdForOrder('o1');
+  const { checkId } = (await staff.loadLiveState()).tickets[ticketId];
+  const lineId = placed.lines[1].id;
+  await staff.voidLine({
+    id: voidId(ticketId, lineId),
+    ticketId,
+    checkId,
+    lineId,
+    reason: '缺料',
+    voidedAt: '2026-11-04T10:05:00.000Z',
+  });
+  assert.deepEqual((await customer.getOrder('o1'))?.voidedLineIds, [lineId]);
+});
+
+test('marking an item sold out stops new orders and can be undone', async () => {
+  const { staff, customer, tableToken } = await demoRestaurant();
+  const order = (orderId: string) =>
+    customer.placeOrder({ orderId, tableToken, items: greens, expectedTotal: 40 });
+
+  await staff.setItemAvailable('item-greens', false);
+  await assert.rejects(order('o1'), rejection('ITEM_UNAVAILABLE'));
+
+  await staff.setItemAvailable('item-greens', true);
+  assert.equal((await order('o2')).status, 'PENDING');
+});
+
 test('an expired order cannot be paid', async (context) => {
   context.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-11-04T10:00:00.000Z') });
   const { staff, customer, tableToken } = await demoRestaurant();

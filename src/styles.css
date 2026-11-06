@@ -196,6 +196,7 @@ p.field-hint { margin: 12px 0 0; }
 .cart-lines li { padding: 12px 0; border-bottom: 1px solid var(--border); }
 .cart-line-main { display: flex; justify-content: space-between; gap: 12px; font-weight: 600; }
 .cart-line-tools { margin-top: 8px; }
+.cart-lines .is-cancelled .cart-line-main { color: var(--muted); text-decoration: line-through; }
 .cart-unavailable { color: var(--danger); font-weight: 600; font-size: 14px; }
 .modal-footer p.field-hint { margin: 0 0 10px; }
 .modal-footer .warning-note { margin: 0 0 10px; }
@@ -209,6 +210,13 @@ p.field-hint { margin: 12px 0 0; }
 .order-actions { display: grid; gap: 8px; }
 .order-actions .button { display: flex; align-items: center; justify-content: center; text-decoration: none; color: inherit; }
 .order-actions .button-primary { color: var(--primary-text); }
+
+.availability { max-width: 720px; }
+.availability-hint.field-hint { margin: 0 0 16px; }
+.availability-group { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 16px; margin-bottom: 16px; }
+.availability-group h2 { font-size: 16px; margin-bottom: 4px; }
+.availability-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--border); }
+.availability-name.is-sold-out { color: var(--muted); text-decoration: line-through; }
 
 .qr-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
 .qr-toolbar + .warning-note { margin: 0 0 16px; }

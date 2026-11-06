@@ -56,6 +56,7 @@
 | `#/pos` | `_staff.pos.index.tsx` | `FloorView` | 是 |
 | `#/pos/table/$tableId` | `_staff.pos.table.$tableId.tsx` | `TableView` | 是 |
 | `#/kds` | `_staff.kds.tsx` | `KdsPage` | 是 |
+| `#/pos/availability` | `_staff.pos.availability.tsx` | `AvailabilityPage` | 是 |
 | `#/pos/qr` | `_staff.pos.qr.tsx` | `QrCodesPage` | 是 |
 | `#/order/$tableToken` | `order.$tableToken.index.tsx` | 顧客菜單（`MenuPage`） | 否 |
 | `#/order/$tableToken/$orderId` | `order.$tableToken.$orderId.tsx` | 顧客訂單狀態（`OrderStatusPage`） | 否 |

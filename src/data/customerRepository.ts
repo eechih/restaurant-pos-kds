@@ -20,6 +20,8 @@ export interface CustomerOrder {
   paidAt?: string | null;
   /** How far the kitchen has got. Missing until the order is paid. */
   ticketStatus?: TicketStatus | null;
+  /** Lines staff cancelled after payment. The customer is owed a refund for these. */
+  voidedLineIds: string[];
 }
 
 /**

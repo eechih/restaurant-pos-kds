@@ -21,6 +21,7 @@ const tableAccess = {
   Order: ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:UpdateItem', 'dynamodb:Query'],
   KitchenTicket: ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:Query'],
   GuestCheck: ['dynamodb:PutItem'],
+  LineVoid: ['dynamodb:BatchGetItem'],
   Seating: ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:ConditionCheckItem'],
 };
 const statements = Object.entries(tableAccess).map(([model, actions]) => {
