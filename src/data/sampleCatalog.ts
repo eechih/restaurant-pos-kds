@@ -1,4 +1,4 @@
-import type { Catalog, OptionGroup } from '../domain';
+import { TAKEOUT_NAME, TAKEOUT_TABLE_ID, type Catalog, type OptionGroup } from '../domain';
 
 const spice: OptionGroup = {
   id: 'spice',
@@ -57,12 +57,15 @@ const ice: OptionGroup = {
 
 /** Record ids are fixed so that importing twice does not create duplicates. */
 export const sampleCatalog: Catalog = {
-  tables: ['A1', 'A2', 'A3', 'A4', 'B1', 'B2', 'B3', 'B4'].map((name, index) => ({
-    id: `table-${name}`,
-    name,
-    seats: index < 4 ? 2 : 4,
-    sortOrder: index,
-  })),
+  tables: [
+    ...['A1', 'A2', 'A3', 'A4', 'B1', 'B2', 'B3', 'B4'].map((name, index) => ({
+      id: `table-${name}`,
+      name,
+      seats: index < 4 ? 2 : 4,
+      sortOrder: index,
+    })),
+    { id: TAKEOUT_TABLE_ID, name: TAKEOUT_NAME, seats: 0, sortOrder: 100 },
+  ],
   categories: [
     { id: 'cat-main', name: '主餐', sortOrder: 0 },
     { id: 'cat-side', name: '小菜', sortOrder: 1 },

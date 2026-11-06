@@ -116,7 +116,8 @@ function ReadyChip({ ticket }: { ticket: KitchenTicket }) {
   return (
     <div className="ready-chip">
       <span>
-        <strong>{ticket.tableName}</strong> 第 {ticket.round} 輪
+        <strong>{ticket.tableName}</strong>
+        {ticket.pickupNumber == null && ` 第 ${ticket.round} 輪`}
       </span>
       <button
         className="button button-small"

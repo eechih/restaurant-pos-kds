@@ -22,6 +22,8 @@ export interface CustomerOrder {
   ticketStatus?: TicketStatus | null;
   /** Lines staff cancelled after payment. The customer is owed a refund for these. */
   voidedLineIds: string[];
+  /** Takeout only, once paid. */
+  pickupNumber?: number | null;
 }
 
 /**
@@ -30,7 +32,7 @@ export interface CustomerOrder {
  */
 export interface CustomerRepository {
   /** Resolves to null when no table has this token. */
-  getTable(tableToken: string): Promise<{ name: string } | null>;
+  getTable(tableToken: string): Promise<{ name: string; takeout: boolean } | null>;
   getMenu(): Promise<{ categories: MenuCategory[]; items: MenuItem[] }>;
   /**
    * Safe to retry with the same order id. The server sets the prices, and rejects

@@ -2,11 +2,14 @@ import {
   applyCatalogChange,
   applyEvent,
   businessDate,
+  isTakeout,
+  pendingLimitFor,
+  pickupLabel,
+  TAKEOUT_TABLE_ID,
   ConflictError,
   effectiveOrderStatus,
   emptyLiveState,
   nextRound,
-  MAX_PENDING_ORDERS_PER_TABLE,
   ORDER_LIFETIME_MS,
   OrderRejectedError,
   pendingOrders,
@@ -30,6 +33,8 @@ const CHANNEL = 'pos-kds-demo';
 interface DemoData {
   catalog: Catalog;
   live: LiveState;
+  /** Last pickup number given, by business date. */
+  pickupCounters?: Record<string, number>;
 }
 
 type KeyValueStore = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
@@ -68,7 +73,7 @@ function createStore(storage: KeyValueStore) {
     if (
       limitPending &&
       pendingOrders(live, Date.now()).filter((order) => order.tableId === table.id).length >=
-        MAX_PENDING_ORDERS_PER_TABLE
+        pendingLimitFor(table.id)
     ) {
       throw new OrderRejectedError('TOO_MANY_PENDING');
     }
@@ -186,10 +191,25 @@ export function createDemoRepository(storage: KeyValueStore = localStorage): Rep
       }
 
       const paidAt = new Date(now).toISOString();
-      const seating = live.seatings[order.tableId];
+      const takeout = isTakeout(order);
+      // Takeout never occupies the counter: each order is a check of its own.
+      const seating = takeout ? undefined : live.seatings[order.tableId];
       const checkId = seating?.checkId ?? crypto.randomUUID();
+      let pickupNumber: number | undefined;
+      if (takeout) {
+        const data = read();
+        const day = businessDate(now);
+        pickupNumber = (data.pickupCounters?.[day] ?? 0) + 1;
+        write({ ...data, pickupCounters: { ...data.pickupCounters, [day]: pickupNumber } });
+      }
+      const label = pickupNumber != null ? pickupLabel(pickupNumber) : order.tableName;
       const events: LiveEvent[] = [];
-      if (!seating) {
+      if (takeout) {
+        events.push({
+          type: 'check/upsert',
+          check: { id: checkId, tableId: order.tableId, tableName: label, openedAt: paidAt },
+        });
+      } else if (!seating) {
         events.push(
           {
             type: 'check/upsert',
@@ -199,17 +219,18 @@ export function createDemoRepository(storage: KeyValueStore = localStorage): Rep
         );
       }
       events.push(
-        { type: 'order/upsert', order: { ...order, status: 'PAID', checkId, paymentMethod, paidAt } },
+        { type: 'order/upsert', order: { ...order, status: 'PAID', checkId, paymentMethod, paidAt, pickupNumber } },
         {
           type: 'ticket/upsert',
           ticket: {
             id: ticketId,
             checkId,
-            tableName: order.tableName,
+            tableName: label,
             round: nextRound(live, checkId),
             status: 'NEW',
             sentAt: paidAt,
             lines: order.lines,
+            pickupNumber,
           },
         },
       );
@@ -264,12 +285,13 @@ export function createDemoCustomerRepository(
     voidedLineIds: order.lines
       .filter((line) => read().live.voids[voidId(ticketIdForOrder(order.id), line.id)])
       .map((line) => line.id),
+    pickupNumber: order.pickupNumber,
   });
 
   return {
     async getTable(tableToken) {
       const table = read().catalog.tables.find((candidate) => candidate.qrToken === tableToken);
-      return table ? { name: table.name } : null;
+      return table ? { name: table.name, takeout: table.id === TAKEOUT_TABLE_ID } : null;
     },
     async getMenu() {
       const { categories, items } = read().catalog;

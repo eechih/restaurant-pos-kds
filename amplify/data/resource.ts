@@ -107,6 +107,7 @@ const schema = a
         expiresAt: a.datetime().required(),
         paymentMethod: a.ref('PaymentMethod'),
         paidAt: a.datetime(),
+        pickupNumber: a.integer(),
       })
       .secondaryIndexes((index) => [
         index('status').sortKeys(['createdAt']).queryField('ordersByStatus'),
@@ -124,6 +125,7 @@ const schema = a
         status: a.ref('TicketStatus').required(),
         sentAt: a.datetime().required(),
         lines: a.ref('TicketLine').required().array().required(),
+        pickupNumber: a.integer(),
       })
       .secondaryIndexes((index) => [
         index('status').sortKeys(['sentAt']).queryField('ticketsByStatus'),
@@ -144,6 +146,12 @@ const schema = a
       })
       .secondaryIndexes((index) => [index('checkId').queryField('voidsByCheck')]),
 
+    // The last takeout pickup number given on a business date, which is the id.
+    // Only the orders function writes it, so numbers cannot repeat.
+    PickupCounter: a
+      .model({ value: a.integer().required() })
+      .authorization((allow) => [allow.group(MANAGER_GROUP).to(['read'])]),
+
     OrderItemInput: a.customType({
       menuItemId: a.id().required(),
       quantity: a.integer().required(),
@@ -163,8 +171,9 @@ const schema = a
       paidAt: a.datetime(),
       ticketStatus: a.ref('TicketStatus'),
       voidedLineIds: a.id().required().array().required(),
+      pickupNumber: a.integer(),
     }),
-    CustomerTable: a.customType({ name: a.string().required() }),
+    CustomerTable: a.customType({ name: a.string().required(), takeout: a.boolean().required() }),
     OrderRecord: a.customType({
       id: a.id().required(),
       tableId: a.id().required(),
@@ -177,6 +186,7 @@ const schema = a
       expiresAt: a.datetime().required(),
       paymentMethod: a.ref('PaymentMethod'),
       paidAt: a.datetime(),
+      pickupNumber: a.integer(),
     }),
     TicketRecord: a.customType({
       id: a.id().required(),
@@ -186,6 +196,7 @@ const schema = a
       status: a.ref('TicketStatus').required(),
       sentAt: a.datetime().required(),
       lines: a.ref('TicketLine').required().array().required(),
+      pickupNumber: a.integer(),
     }),
     CheckRecord: a.customType({
       id: a.id().required(),

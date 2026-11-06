@@ -64,6 +64,7 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .badge-danger { background: var(--danger-bg); color: var(--danger); }
 
 .page { flex: 1; min-height: 0; overflow: auto; padding: 16px; }
+.page-bare { padding: 0; }
 .section-title { font-size: 18px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
 .count { background: var(--primary); color: var(--primary-text); border-radius: 999px; padding: 0 9px; font-size: 14px; }
 .empty-note { color: var(--muted); padding: 16px 0; }
@@ -277,6 +278,28 @@ a.button-primary { color: var(--primary-text); }
 .report-table tfoot th, .report-table tfoot td { font-weight: 700; border-bottom: 0; border-top: 2px solid var(--text); }
 .report-table th[scope=row] { white-space: normal; }
 .report-note.field-hint { display: block; margin: 0 0 8px; }
+
+.takeout-open-title { margin-top: 20px; }
+.takeout-ticket h2 { font-size: 20px; }
+.pickup-issued-label { text-align: center; margin-top: 12px; }
+.pickup-issued { font-size: 96px; font-weight: 800; text-align: center; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.takeout-setup { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 16px; }
+.qr-card-hint.field-hint { margin: -4px 0 0; }
+.pickup-number-label { margin-bottom: -8px; }
+.pickup-number { font-size: 64px; }
+.pickup-call { color: var(--ok); }
+
+.pickup-screen { min-height: 100%; display: grid; grid-template-columns: 1fr 1.4fr; grid-template-rows: 1fr auto; background: #1d1b18; color: #f4efe6; }
+.pickup-column { padding: 32px; }
+.pickup-column h2 { font-size: clamp(28px, 4vw, 48px); margin-bottom: 24px; color: #b9b0a2; }
+.pickup-ready { background: #23402d; }
+.pickup-ready h2 { color: #c8f0d2; }
+.pickup-numbers { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 16px 32px; font-variant-numeric: tabular-nums; font-weight: 800; }
+.pickup-column .pickup-numbers li { font-size: clamp(40px, 6vw, 72px); color: #d8d0c3; }
+.pickup-ready .pickup-numbers li { font-size: clamp(64px, 10vw, 128px); color: #fff; }
+.pickup-footer { grid-column: 1 / -1; display: flex; justify-content: flex-end; align-items: center; gap: 12px; padding: 8px 16px; }
+.pickup-footer .link-button { color: #8c8478; }
+@media (max-width: 860px) { .pickup-screen { grid-template-columns: 1fr; } }
 
 .toast {
   position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 10;

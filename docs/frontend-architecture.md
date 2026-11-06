@@ -57,7 +57,9 @@
 | `#/pos/table/$tableId` | `_staff.pos.table.$tableId.tsx` | `TableView` | 員工 |
 | `#/kds` | `_staff.kds.tsx` | `KdsPage` | 員工 |
 | `#/pos/availability` | `_staff.pos.availability.tsx` | `AvailabilityPage` | 員工 |
-| `#/pos/qr` | `_staff.pos.qr.tsx` | `QrCodesPage` | 員工；重新產生只限店長 |
+| `#/pos/takeout` | `_staff.pos.takeout.tsx` | `TakeoutView` | 員工 |
+| `#/pos/qr` | `_staff.pos.qr.tsx` | `QrCodesPage` | 員工；重新產生和建立外帶入口只限店長 |
+| `#/pickup` | `_staff.pickup.tsx` | `PickupScreen`，面向顧客的叫號螢幕 | 員工帳號登入的裝置 |
 | `#/pos/settings/menu` | `_staff.pos.settings.menu.tsx` | `MenuSettings` | 店長 |
 | `#/pos/settings/tables` | `_staff.pos.settings.tables.tsx` | `TableSettings` | 店長 |
 | `#/pos/settings/staff` | `_staff.pos.settings.staff.tsx` | `StaffSettings` | 店長 |

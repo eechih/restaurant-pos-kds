@@ -12,12 +12,14 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as StaffRouteImport } from './routes/_staff'
 import { Route as StaffKdsRouteImport } from './routes/_staff.kds'
+import { Route as StaffPickupRouteImport } from './routes/_staff.pickup'
 import { Route as StaffPosRouteImport } from './routes/_staff.pos'
 import { Route as OrderTableTokenRouteImport } from './routes/order.$tableToken'
 import { Route as StaffPosIndexRouteImport } from './routes/_staff.pos.index'
 import { Route as StaffPosAvailabilityRouteImport } from './routes/_staff.pos.availability'
 import { Route as StaffPosQrRouteImport } from './routes/_staff.pos.qr'
 import { Route as StaffPosSettingsRouteImport } from './routes/_staff.pos.settings'
+import { Route as StaffPosTakeoutRouteImport } from './routes/_staff.pos.takeout'
 import { Route as OrderTableTokenIndexRouteImport } from './routes/order.$tableToken.index'
 import { Route as OrderTableTokenOrderIdRouteImport } from './routes/order.$tableToken.$orderId'
 import { Route as StaffPosSettingsIndexRouteImport } from './routes/_staff.pos.settings.index'
@@ -39,6 +41,11 @@ const StaffRoute = StaffRouteImport.update({
 const StaffKdsRoute = StaffKdsRouteImport.update({
   id: '/kds',
   path: '/kds',
+  getParentRoute: () => StaffRoute,
+} as any)
+const StaffPickupRoute = StaffPickupRouteImport.update({
+  id: '/pickup',
+  path: '/pickup',
   getParentRoute: () => StaffRoute,
 } as any)
 const StaffPosRoute = StaffPosRouteImport.update({
@@ -69,6 +76,11 @@ const StaffPosQrRoute = StaffPosQrRouteImport.update({
 const StaffPosSettingsRoute = StaffPosSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => StaffPosRoute,
+} as any)
+const StaffPosTakeoutRoute = StaffPosTakeoutRouteImport.update({
+  id: '/takeout',
+  path: '/takeout',
   getParentRoute: () => StaffPosRoute,
 } as any)
 const OrderTableTokenIndexRoute = OrderTableTokenIndexRouteImport.update({
@@ -115,11 +127,13 @@ const StaffPosTableTableIdRoute = StaffPosTableTableIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/kds': typeof StaffKdsRoute
+  '/pickup': typeof StaffPickupRoute
   '/pos': typeof StaffPosRouteWithChildren
   '/order/$tableToken': typeof OrderTableTokenRouteWithChildren
   '/pos/availability': typeof StaffPosAvailabilityRoute
   '/pos/qr': typeof StaffPosQrRoute
   '/pos/settings': typeof StaffPosSettingsRouteWithChildren
+  '/pos/takeout': typeof StaffPosTakeoutRoute
   '/order/$tableToken/$orderId': typeof OrderTableTokenOrderIdRoute
   '/pos/': typeof StaffPosIndexRoute
   '/order/$tableToken/': typeof OrderTableTokenIndexRoute
@@ -133,8 +147,10 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/kds': typeof StaffKdsRoute
+  '/pickup': typeof StaffPickupRoute
   '/pos/availability': typeof StaffPosAvailabilityRoute
   '/pos/qr': typeof StaffPosQrRoute
+  '/pos/takeout': typeof StaffPosTakeoutRoute
   '/order/$tableToken/$orderId': typeof OrderTableTokenOrderIdRoute
   '/pos': typeof StaffPosIndexRoute
   '/order/$tableToken': typeof OrderTableTokenIndexRoute
@@ -150,11 +166,13 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_staff': typeof StaffRouteWithChildren
   '/_staff/kds': typeof StaffKdsRoute
+  '/_staff/pickup': typeof StaffPickupRoute
   '/_staff/pos': typeof StaffPosRouteWithChildren
   '/order/$tableToken': typeof OrderTableTokenRouteWithChildren
   '/_staff/pos/availability': typeof StaffPosAvailabilityRoute
   '/_staff/pos/qr': typeof StaffPosQrRoute
   '/_staff/pos/settings': typeof StaffPosSettingsRouteWithChildren
+  '/_staff/pos/takeout': typeof StaffPosTakeoutRoute
   '/order/$tableToken/$orderId': typeof OrderTableTokenOrderIdRoute
   '/_staff/pos/': typeof StaffPosIndexRoute
   '/order/$tableToken/': typeof OrderTableTokenIndexRoute
@@ -170,11 +188,13 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/kds'
+    | '/pickup'
     | '/pos'
     | '/order/$tableToken'
     | '/pos/availability'
     | '/pos/qr'
     | '/pos/settings'
+    | '/pos/takeout'
     | '/order/$tableToken/$orderId'
     | '/pos/'
     | '/order/$tableToken/'
@@ -188,8 +208,10 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/kds'
+    | '/pickup'
     | '/pos/availability'
     | '/pos/qr'
+    | '/pos/takeout'
     | '/order/$tableToken/$orderId'
     | '/pos'
     | '/order/$tableToken'
@@ -204,11 +226,13 @@ export interface FileRouteTypes {
     | '/'
     | '/_staff'
     | '/_staff/kds'
+    | '/_staff/pickup'
     | '/_staff/pos'
     | '/order/$tableToken'
     | '/_staff/pos/availability'
     | '/_staff/pos/qr'
     | '/_staff/pos/settings'
+    | '/_staff/pos/takeout'
     | '/order/$tableToken/$orderId'
     | '/_staff/pos/'
     | '/order/$tableToken/'
@@ -247,6 +271,13 @@ declare module '@tanstack/react-router' {
       path: '/kds'
       fullPath: '/kds'
       preLoaderRoute: typeof StaffKdsRouteImport
+      parentRoute: typeof StaffRoute
+    }
+    '/_staff/pickup': {
+      id: '/_staff/pickup'
+      path: '/pickup'
+      fullPath: '/pickup'
+      preLoaderRoute: typeof StaffPickupRouteImport
       parentRoute: typeof StaffRoute
     }
     '/_staff/pos': {
@@ -289,6 +320,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/pos/settings'
       preLoaderRoute: typeof StaffPosSettingsRouteImport
+      parentRoute: typeof StaffPosRoute
+    }
+    '/_staff/pos/takeout': {
+      id: '/_staff/pos/takeout'
+      path: '/takeout'
+      fullPath: '/pos/takeout'
+      preLoaderRoute: typeof StaffPosTakeoutRouteImport
       parentRoute: typeof StaffPosRoute
     }
     '/order/$tableToken/': {
@@ -373,6 +411,7 @@ interface StaffPosRouteChildren {
   StaffPosAvailabilityRoute: typeof StaffPosAvailabilityRoute
   StaffPosQrRoute: typeof StaffPosQrRoute
   StaffPosSettingsRoute: typeof StaffPosSettingsRouteWithChildren
+  StaffPosTakeoutRoute: typeof StaffPosTakeoutRoute
   StaffPosIndexRoute: typeof StaffPosIndexRoute
   StaffPosTableTableIdRoute: typeof StaffPosTableTableIdRoute
 }
@@ -381,6 +420,7 @@ const StaffPosRouteChildren: StaffPosRouteChildren = {
   StaffPosAvailabilityRoute: StaffPosAvailabilityRoute,
   StaffPosQrRoute: StaffPosQrRoute,
   StaffPosSettingsRoute: StaffPosSettingsRouteWithChildren,
+  StaffPosTakeoutRoute: StaffPosTakeoutRoute,
   StaffPosIndexRoute: StaffPosIndexRoute,
   StaffPosTableTableIdRoute: StaffPosTableTableIdRoute,
 }
@@ -391,11 +431,13 @@ const StaffPosRouteWithChildren = StaffPosRoute._addFileChildren(
 
 interface StaffRouteChildren {
   StaffKdsRoute: typeof StaffKdsRoute
+  StaffPickupRoute: typeof StaffPickupRoute
   StaffPosRoute: typeof StaffPosRouteWithChildren
 }
 
 const StaffRouteChildren: StaffRouteChildren = {
   StaffKdsRoute: StaffKdsRoute,
+  StaffPickupRoute: StaffPickupRoute,
   StaffPosRoute: StaffPosRouteWithChildren,
 }
 

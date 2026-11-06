@@ -5,6 +5,7 @@ import { useNow } from '../ui/useNow';
 import {
   billTotal,
   ConflictError,
+  diningTables,
   elapsedMinutes,
   formatMoney,
   isFullyVoided,
@@ -57,7 +58,7 @@ export function FloorView() {
       <section aria-label="桌位">
         <h1 className="section-title">桌位</h1>
         <div className="table-grid">
-          {catalog.tables.map((table) => (
+          {diningTables(catalog).map((table) => (
             <TableCard
               key={table.id}
               table={table}
@@ -139,8 +140,12 @@ function PendingOrder({ order }: { order: Order }) {
   const { busy, run } = useAction();
   const confirm = (method: PaymentMethod) =>
     run(async () => {
-      await actions.confirmOrderPayment(order, method);
-      notify(`${order.tableName} 已收款並送廚`);
+      const pickupNumber = await actions.confirmOrderPayment(order, method);
+      notify(
+        pickupNumber != null
+          ? `已收款並送廚，取餐號 ${pickupNumber}`
+          : `${order.tableName} 已收款並送廚`,
+      );
     }, '確認收款失敗');
   return (
     <div className="ready-row">
@@ -165,10 +170,12 @@ function PendingOrder({ order }: { order: Order }) {
 function ReadyTicket({ ticket }: { ticket: KitchenTicket }) {
   const { actions } = useApp();
   const { busy, run } = useAction();
+  const takeout = ticket.pickupNumber != null;
   return (
     <div className="ready-row">
       <div>
-        <strong>{ticket.tableName}</strong> 第 {ticket.round} 輪
+        <strong>{ticket.tableName}</strong>
+        {!takeout && ` 第 ${ticket.round} 輪`}
         <div className="line-options">
           {ticket.lines.map((line) => `${line.name}×${line.quantity}`).join('、')}
         </div>
@@ -178,7 +185,7 @@ function ReadyTicket({ ticket }: { ticket: KitchenTicket }) {
         disabled={busy}
         onClick={() => run(() => actions.setTicketStatus(ticket, 'SERVED'), '更新上菜狀態失敗')}
       >
-        已上菜
+        {takeout ? '已取餐' : '已上菜'}
       </button>
     </div>
   );

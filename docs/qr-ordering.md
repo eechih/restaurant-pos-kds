@@ -58,7 +58,7 @@
 | `KitchenTicket` | 內容不變，只由 Lambda 建立，ID 由 `orderId` 推導。員工只能更新狀態 |
 | `LineVoid` | 付款後取消品項會顯示在顧客的訂單頁，並提示到櫃台退款；第 4 階段才連動退款 |
 | `MenuItem` | 新增 `available`（售完），員工在 `#/pos/availability` 透過 `setItemAvailable` 切換，其他欄位只有店長能改。`featured` 留到第 5 階段 |
-| `DiningTable` | 新增 `qrToken`，訪客不可讀 |
+| `DiningTable` | 新增 `qrToken`，訪客不可讀。ID 為 `takeout` 的那筆是外帶入口，不是桌位 |
 
 ## 關鍵規則
 

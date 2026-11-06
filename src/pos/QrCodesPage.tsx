@@ -1,7 +1,7 @@
 import qrcode from 'qrcode-generator';
 import { useMemo, useState } from 'react';
 import { useAction, useApp } from '../appContext';
-import type { DiningTable } from '../domain';
+import { TAKEOUT_NAME, TAKEOUT_TABLE_ID, type DiningTable } from '../domain';
 import { Modal } from '../ui/Modal';
 
 function customerUrl(tableToken: string) {
@@ -41,6 +41,9 @@ export function QrCodesPage() {
   const isManager = role === 'MANAGER';
   const [rotating, setRotating] = useState<DiningTable>();
   const isLocal = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+  const takeout = catalog.tables.find((table) => table.id === TAKEOUT_TABLE_ID);
+  // The takeout code goes on the counter, so it comes first.
+  const tables = takeout ? [takeout, ...catalog.tables.filter((table) => table !== takeout)] : catalog.tables;
 
   return (
     <div>
@@ -53,10 +56,12 @@ export function QrCodesPage() {
           目前的網址是本機位址，手機掃描後無法開啟。正式列印請在部署後的網站操作。
         </p>
       )}
+      {!takeout && isManager && <CreateTakeoutEntry />}
       <div className="qr-grid">
-        {catalog.tables.map((table) => (
+        {tables.map((table) => (
           <section key={table.id} className="qr-card" aria-label={`${table.name} QR Code`}>
-            <h2>{table.name}</h2>
+            <h2>{table.id === TAKEOUT_TABLE_ID ? '外帶點餐' : table.name}</h2>
+            {table.id === TAKEOUT_TABLE_ID && <p className="field-hint qr-card-hint">貼在櫃台或門口，掃碼點外帶</p>}
             {table.qrToken ? (
               <>
                 <QrCode value={customerUrl(table.qrToken)} label={`${table.name} 點餐 QR Code`} />
@@ -81,6 +86,30 @@ export function QrCodesPage() {
         ))}
       </div>
       {rotating && <RotateDialog table={rotating} onClose={() => setRotating(undefined)} />}
+    </div>
+  );
+}
+
+function CreateTakeoutEntry() {
+  const { actions, notify } = useApp();
+  const { busy, run } = useAction();
+  const create = () =>
+    run(async () => {
+      await actions.changeCatalog([
+        {
+          type: 'table/save',
+          table: { id: TAKEOUT_TABLE_ID, name: TAKEOUT_NAME, seats: 0, sortOrder: -1, qrToken: crypto.randomUUID() },
+          isNew: true,
+        },
+      ]);
+      notify('已建立外帶入口');
+    }, '建立外帶入口失敗');
+  return (
+    <div className="warning-note no-print takeout-setup">
+      <span>還沒有外帶入口。建立後，櫃台可以點外帶，顧客也能掃碼點外帶。</span>
+      <button className="button button-small button-primary" disabled={busy} onClick={create}>
+        建立外帶入口
+      </button>
     </div>
   );
 }

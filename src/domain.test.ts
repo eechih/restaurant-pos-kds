@@ -4,6 +4,10 @@ import { createDemoCustomerRepository, createDemoRepository } from './data/demoR
 import { sampleCatalog } from './data/sampleCatalog';
 import {
   applyCatalogChange,
+  diningTables,
+  MAX_PENDING_TAKEOUT_ORDERS,
+  openTakeoutTickets,
+  TAKEOUT_TABLE_ID,
   businessDate,
   businessDay,
   dailyReport,
@@ -435,7 +439,7 @@ test('editing a table keeps its QR code working', async () => {
   await staff.changeCatalog([
     { type: 'table/save', table: { ...table, name: '窗邊 1', qrToken: 'stale' }, isNew: false },
   ]);
-  assert.deepEqual(await customer.getTable(tableToken), { name: '窗邊 1' });
+  assert.deepEqual(await customer.getTable(tableToken), { name: '窗邊 1', takeout: false });
 
   await staff.changeCatalog([{ type: 'table/delete', id: table.id }]);
   assert.equal(await customer.getTable(tableToken), null, 'a deleted table stops taking orders');
@@ -573,4 +577,59 @@ test('the daily report adds up takings, refunds and items by payment method', as
 
   const other = await staff.getDailyRecords(shiftDate(today, -1));
   assert.deepEqual(dailyReport(other.orders, other.voids).orders, 0, 'another day is empty');
+});
+
+async function takeoutToken(staff: Awaited<ReturnType<typeof demoRestaurant>>['staff']) {
+  const takeout = (await staff.getCatalog()).tables.find((table) => table.id === TAKEOUT_TABLE_ID);
+  assert.ok(takeout?.qrToken);
+  return takeout.qrToken;
+}
+
+test('takeout orders get pickup numbers and never occupy a table', async () => {
+  const { staff, customer } = await demoRestaurant();
+  const token = await takeoutToken(staff);
+  assert.deepEqual(await customer.getTable(token), { name: '外帶', takeout: true });
+
+  await customer.placeOrder({ orderId: 't1', tableToken: token, items: greens, expectedTotal: 40 });
+  await customer.placeOrder({ orderId: 't2', tableToken: token, items: greens, expectedTotal: 40 });
+  assert.equal((await customer.getOrder('t1'))?.pickupNumber, undefined, 'no number until paid');
+  // Paid out of order: numbers follow payment, not ordering.
+  await staff.confirmOrderPayment('t2', 'CASH');
+  await staff.confirmOrderPayment('t1', 'CARD');
+  await staff.placeStaffOrder({ orderId: 't3', tableId: TAKEOUT_TABLE_ID, items: greens, expectedTotal: 40 });
+  await staff.confirmOrderPayment('t3', 'CASH');
+
+  const state = await staff.loadLiveState();
+  assert.equal(state.seatings[TAKEOUT_TABLE_ID], undefined, 'takeout opens no table');
+  const t1 = state.tickets[ticketIdForOrder('t1')];
+  const t2 = state.tickets[ticketIdForOrder('t2')];
+  assert.equal(t2.pickupNumber, 1);
+  assert.equal(t1.pickupNumber, 2);
+  assert.equal(state.tickets[ticketIdForOrder('t3')].pickupNumber, 3);
+  assert.equal(t1.tableName, '外帶 #2', 'the kitchen sees the number');
+  assert.notEqual(t1.checkId, t2.checkId, 'each takeout order is its own check');
+  assert.equal(t1.round, 1);
+  assert.equal((await customer.getOrder('t1'))?.pickupNumber, 2);
+  assert.equal(state.orders.t1.pickupNumber, 2);
+
+  assert.deepEqual(openTakeoutTickets(state).map((ticket) => ticket.pickupNumber), [1, 2, 3]);
+  await staff.setTicketStatus(t2.id, 'SERVED');
+  assert.deepEqual(openTakeoutTickets(await staff.loadLiveState()).map((ticket) => ticket.pickupNumber), [2, 3]);
+
+  const { orders, voids } = await staff.getDailyRecords(businessDate(Date.now()));
+  const report = dailyReport(orders, voids);
+  assert.deepEqual(report.takeout, { orders: 3, received: 120 });
+  assert.ok(!diningTables(await staff.getCatalog()).some((table) => table.id === TAKEOUT_TABLE_ID));
+});
+
+test('the takeout entry allows more unpaid orders than a table', async () => {
+  const { customer, staff } = await demoRestaurant();
+  const token = await takeoutToken(staff);
+  for (let index = 0; index < MAX_PENDING_TAKEOUT_ORDERS; index += 1) {
+    await customer.placeOrder({ orderId: `t${index}`, tableToken: token, items: greens, expectedTotal: 40 });
+  }
+  await assert.rejects(
+    customer.placeOrder({ orderId: 'one-more', tableToken: token, items: greens, expectedTotal: 40 }),
+    rejection('TOO_MANY_PENDING'),
+  );
 });

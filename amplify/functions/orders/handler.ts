@@ -7,12 +7,17 @@ import {
   PutCommand,
   QueryCommand,
   TransactWriteCommand,
+  UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 import {
+  businessDate,
   businessDay,
   effectiveOrderStatus,
   isBusinessDate,
-  MAX_PENDING_ORDERS_PER_TABLE,
+  isTakeout,
+  pendingLimitFor,
+  pickupLabel,
+  TAKEOUT_TABLE_ID,
   ORDER_LIFETIME_MS,
   OrderRejectedError,
   priceOrder,
@@ -43,6 +48,7 @@ const TABLES = {
   check: tableName('GUESTCHECK'),
   seating: tableName('SEATING'),
   lineVoid: tableName('LINEVOID'),
+  pickup: tableName('PICKUPCOUNTER'),
 };
 
 /** Amplify's data API expects these on every record it reads. */
@@ -92,6 +98,7 @@ async function toCustomerOrder(order: Order) {
     paidAt: order.paidAt,
     ticketStatus: ticket?.status,
     voidedLineIds: status === 'PAID' ? await voidedLineIds(order) : [],
+    pickupNumber: order.pickupNumber,
   };
 }
 
@@ -112,6 +119,7 @@ async function getMenuItems(items: OrderItemInput[]): Promise<MenuItem[]> {
  * That is acceptable, because the limit only has to stop sustained flooding.
  */
 async function hasRoomForPendingOrder(tableId: string) {
+  const limit = pendingLimitFor(tableId);
   const now = Date.now();
   let count = 0;
   let ExclusiveStartKey: Record<string, unknown> | undefined;
@@ -135,8 +143,8 @@ async function hasRoomForPendingOrder(tableId: string) {
     );
     count += page.Count ?? 0;
     ExclusiveStartKey = page.LastEvaluatedKey;
-  } while (ExclusiveStartKey && count < MAX_PENDING_ORDERS_PER_TABLE);
-  return count < MAX_PENDING_ORDERS_PER_TABLE;
+  } while (ExclusiveStartKey && count < limit);
+  return count < limit;
 }
 
 async function createOrder(
@@ -198,6 +206,25 @@ async function nextRoundForCheck(checkId: string) {
   return (Items ?? []).reduce((max, ticket) => Math.max(max, ticket.round as number), 0) + 1;
 }
 
+/**
+ * The next takeout number for the business day. Taken before the payment is
+ * written, so a payment that then fails leaves a gap, which is harmless.
+ */
+async function nextPickupNumber(now: string) {
+  const { Attributes } = await db.send(
+    new UpdateCommand({
+      TableName: TABLES.pickup,
+      Key: { id: businessDate(now) },
+      UpdateExpression:
+        'ADD #value :one SET #typename = :typename, updatedAt = :now, createdAt = if_not_exists(createdAt, :now)',
+      ExpressionAttributeNames: { '#value': 'value', '#typename': '__typename' },
+      ExpressionAttributeValues: { ':one': 1, ':typename': 'PickupCounter', ':now': now },
+      ReturnValues: 'UPDATED_NEW',
+    }),
+  );
+  return Attributes?.value as number;
+}
+
 async function confirmPaymentOnce(orderId: string, paymentMethod: PaymentMethod) {
   const order = await getOrder(orderId);
   if (!order) throw new OrderRejectedError('ORDER_NOT_FOUND');
@@ -209,26 +236,35 @@ async function confirmPaymentOnce(orderId: string, paymentMethod: PaymentMethod)
     return { order, ticket: await getItem<KitchenTicket>(TABLES.ticket, { id: ticketId }) };
   }
 
-  const seating = await getItem<{ checkId: string }>(TABLES.seating, { tableId: order.tableId });
+  // Takeout never occupies the counter: each order is a check of its own.
+  const takeout = isTakeout(order);
+  const seating = takeout
+    ? undefined
+    : await getItem<{ checkId: string }>(TABLES.seating, { tableId: order.tableId });
   const checkId = seating?.checkId ?? randomUUID();
   const round = seating ? await nextRoundForCheck(checkId) : 1;
   const now = new Date().toISOString();
+  const pickupNumber = takeout ? await nextPickupNumber(now) : undefined;
+  const label = pickupNumber != null ? pickupLabel(pickupNumber) : order.tableName;
 
-  const paidOrder: Order = { ...order, status: 'PAID', checkId, paymentMethod, paidAt: now };
+  const paidOrder: Order = { ...order, status: 'PAID', checkId, paymentMethod, paidAt: now, pickupNumber };
   const ticket: KitchenTicket = {
     id: ticketId,
     checkId,
-    tableName: order.tableName,
+    tableName: label,
     round,
     status: 'NEW',
     sentAt: now,
     lines: order.lines,
+    pickupNumber,
   };
   const check = seating
     ? undefined
-    : { id: checkId, tableId: order.tableId, tableName: order.tableName, openedAt: now };
+    : { id: checkId, tableId: order.tableId, tableName: label, openedAt: now };
 
-  const openTable = !check
+  const openTable = takeout
+    ? [{ Put: { TableName: TABLES.check, Item: { ...record('GuestCheck', now), ...check } } }]
+    : !check
     ? [
         {
           // The table must still be on this check when the transaction commits.
@@ -264,7 +300,8 @@ async function confirmPaymentOnce(orderId: string, paymentMethod: PaymentMethod)
             TableName: TABLES.order,
             Key: { id: orderId },
             UpdateExpression:
-              'SET #status = :paid, checkId = :checkId, paymentMethod = :method, paidAt = :now, updatedAt = :now',
+              'SET #status = :paid, checkId = :checkId, paymentMethod = :method, paidAt = :now, updatedAt = :now' +
+              (pickupNumber != null ? ', pickupNumber = :pickup' : ''),
             ConditionExpression: '#status = :pending',
             ExpressionAttributeNames: { '#status': 'status' },
             ExpressionAttributeValues: {
@@ -273,6 +310,7 @@ async function confirmPaymentOnce(orderId: string, paymentMethod: PaymentMethod)
               ':checkId': checkId,
               ':method': paymentMethod,
               ':now': now,
+              ...(pickupNumber != null ? { ':pickup': pickupNumber } : {}),
             },
           },
         },
@@ -392,7 +430,7 @@ export const handler = async ({ fieldName, arguments: args }: Event) => {
       return confirmPayment(args.orderId, args.paymentMethod);
     case 'getCustomerTable': {
       const table = await tableForToken(args.tableToken);
-      return table ? { name: table.name } : null;
+      return table ? { name: table.name, takeout: table.id === TAKEOUT_TABLE_ID } : null;
     }
     case 'getDailyRecords':
       return dailyRecords(args.date);

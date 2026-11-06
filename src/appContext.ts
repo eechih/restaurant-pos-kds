@@ -39,13 +39,16 @@ export interface Actions {
   setItemAvailable(itemId: string, available: boolean): Promise<void>;
   rotateTableToken(tableId: string): Promise<void>;
   openTable(input: { tableId: string; tableName: string; guestCount: number }): Promise<GuestCheck>;
-  /** Takes payment for a staff-entered order and sends it to the kitchen. */
+  /**
+   * Takes payment for a staff-entered order and sends it to the kitchen.
+   * Resolves to the pickup number, for takeout.
+   */
   placeAndPay(
     order: { orderId: string; tableId: string; items: OrderItemInput[]; expectedTotal: number },
     paymentMethod: PaymentMethod,
-  ): Promise<void>;
-  /** Takes payment for a customer's order and sends it to the kitchen. */
-  confirmOrderPayment(order: Order, paymentMethod: PaymentMethod): Promise<void>;
+  ): Promise<number | undefined>;
+  /** Takes payment for a customer's order and sends it to the kitchen. Resolves as placeAndPay. */
+  confirmOrderPayment(order: Order, paymentMethod: PaymentMethod): Promise<number | undefined>;
   setTicketStatus(ticket: KitchenTicket, status: TicketStatus): Promise<void>;
   voidLine(lineVoid: LineVoid): Promise<void>;
   clearTable(tableId: string): Promise<void>;

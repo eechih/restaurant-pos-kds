@@ -6,7 +6,7 @@ import type { Repository } from './data/repository';
 import { useLiveState } from './data/useLiveState';
 import { emptyCatalog, type Actions, AppContext, type AppContextValue, type Draft } from './appContext';
 import { ArrivalAlert } from './ArrivalAlert';
-import { OrderRejectedError, type StaffRole } from './domain';
+import { OrderRejectedError, type LiveEvent, type StaffRole } from './domain';
 
 interface AppProps {
   repository: Repository;
@@ -21,6 +21,9 @@ export function App({ repository, role, userLabel, onSignOut }: AppProps) {
   const isQr = pathname.startsWith('/pos/qr');
   const isAvailability = pathname.startsWith('/pos/availability');
   const isSettings = pathname.startsWith('/pos/settings');
+  const isTakeout = pathname.startsWith('/pos/takeout');
+  // Faces customers, so it shows no staff navigation.
+  const isPickup = pathname.startsWith('/pickup');
   const queryClient = useQueryClient();
   const live = useLiveState(repository);
   const { dispatch } = live;
@@ -56,8 +59,15 @@ export function App({ repository, role, userLabel, onSignOut }: AppProps) {
 
   // Each write is also applied locally: subscription events can lag, and the
   // screen should not show a table as empty straight after it has been opened.
-  const actions = useMemo<Actions>(
-    () => ({
+  const actions = useMemo<Actions>(() => {
+    const applyPayment = (events: LiveEvent[]) => {
+      events.forEach(dispatch);
+      for (const event of events) {
+        if (event.type === 'order/upsert') return event.order.pickupNumber ?? undefined;
+      }
+      return undefined;
+    };
+    return {
       async seedCatalog() {
         await repository.seedCatalog();
         await reloadCatalog();
@@ -92,10 +102,10 @@ export function App({ repository, role, userLabel, onSignOut }: AppProps) {
           if (error instanceof OrderRejectedError) void reloadCatalog();
           throw error;
         }
-        (await repository.confirmOrderPayment(order.orderId, paymentMethod)).forEach(dispatch);
+        return applyPayment(await repository.confirmOrderPayment(order.orderId, paymentMethod));
       },
       async confirmOrderPayment(order, paymentMethod) {
-        (await repository.confirmOrderPayment(order.id, paymentMethod)).forEach(dispatch);
+        return applyPayment(await repository.confirmOrderPayment(order.id, paymentMethod));
       },
       async setTicketStatus(ticket, status) {
         await repository.setTicketStatus(ticket.id, status);
@@ -109,9 +119,8 @@ export function App({ repository, role, userLabel, onSignOut }: AppProps) {
         await repository.clearTable(tableId);
         dispatch({ type: 'seating/delete', tableId });
       },
-    }),
-    [repository, reloadCatalog, dispatch],
-  );
+    };
+  }, [repository, reloadCatalog, dispatch]);
 
   const context = useMemo(
     () => ({
@@ -132,48 +141,51 @@ export function App({ repository, role, userLabel, onSignOut }: AppProps) {
   return (
     <AppContext.Provider value={context}>
       <div className={isKds ? 'app theme-kds' : 'app'}>
-        <header className="topbar">
-          <nav className="topbar-nav" aria-label="主要頁面">
-            <Link to="/pos" className={isKds || isQr || isAvailability || isSettings ? '' : 'is-active'}>
-              POS
-            </Link>
-            <Link to="/kds" className={isKds ? 'is-active' : ''}>KDS 廚房</Link>
-            <Link to="/pos/availability" className={isAvailability ? 'is-active' : ''}>售完管理</Link>
-            <Link to="/pos/qr" className={isQr ? 'is-active' : ''}>QR Code</Link>
-            {role === 'MANAGER' && (
-              <Link to="/pos/settings" className={isSettings ? 'is-active' : ''}>店務設定</Link>
-            )}
-          </nav>
-          <div className="topbar-status">
-            <ArrivalAlert isKds={isKds} />
-            {repository.mode === 'demo' && (
-              <>
-                <span className="badge badge-warn">本機展示模式</span>
-                <button
-                  className="link-button"
-                  onClick={() => {
-                    repository.resetDemo?.();
-                    window.location.hash = '#/pos';
-                    window.location.reload();
-                  }}
-                >
-                  重置資料
-                </button>
-              </>
-            )}
-            <span className={live.online && !live.syncError ? 'badge badge-ok' : 'badge badge-danger'} role="status">
-              {!live.online ? '連線中斷，正在重連' : live.syncError ? '同步失敗，將自動重試' : '已連線'}
-            </span>
-            {userLabel && (
-              <span className="topbar-user">
-                {userLabel}
-                {role === 'MANAGER' && '（店長）'}
+        {!isPickup && (
+          <header className="topbar">
+            <nav className="topbar-nav" aria-label="主要頁面">
+              <Link to="/pos" className={isKds || isQr || isAvailability || isSettings || isTakeout ? '' : 'is-active'}>
+                POS
+              </Link>
+              <Link to="/pos/takeout" className={isTakeout ? 'is-active' : ''}>外帶</Link>
+              <Link to="/kds" className={isKds ? 'is-active' : ''}>KDS 廚房</Link>
+              <Link to="/pos/availability" className={isAvailability ? 'is-active' : ''}>售完管理</Link>
+              <Link to="/pos/qr" className={isQr ? 'is-active' : ''}>QR Code</Link>
+              {role === 'MANAGER' && (
+                <Link to="/pos/settings" className={isSettings ? 'is-active' : ''}>店務設定</Link>
+              )}
+            </nav>
+            <div className="topbar-status">
+              <ArrivalAlert isKds={isKds} />
+              {repository.mode === 'demo' && (
+                <>
+                  <span className="badge badge-warn">本機展示模式</span>
+                  <button
+                    className="link-button"
+                    onClick={() => {
+                      repository.resetDemo?.();
+                      window.location.hash = '#/pos';
+                      window.location.reload();
+                    }}
+                  >
+                    重置資料
+                  </button>
+                </>
+              )}
+              <span className={live.online && !live.syncError ? 'badge badge-ok' : 'badge badge-danger'} role="status">
+                {!live.online ? '連線中斷，正在重連' : live.syncError ? '同步失敗，將自動重試' : '已連線'}
               </span>
-            )}
-            {onSignOut && <button className="link-button" onClick={onSignOut}>登出</button>}
-          </div>
-        </header>
-        <main className="page"><Outlet /></main>
+              {userLabel && (
+                <span className="topbar-user">
+                  {userLabel}
+                  {role === 'MANAGER' && '（店長）'}
+                </span>
+              )}
+              {onSignOut && <button className="link-button" onClick={onSignOut}>登出</button>}
+            </div>
+          </header>
+        )}
+        <main className={isPickup ? 'page page-bare' : 'page'}><Outlet /></main>
         {toast && (
           <div key={toast.id} className={toast.isError ? 'toast toast-error' : 'toast'} role="alert">
             {toast.message}

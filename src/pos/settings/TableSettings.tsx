@@ -1,7 +1,7 @@
 import { Link } from '@tanstack/react-router';
 import { useState } from 'react';
 import { useApp } from '../../appContext';
-import { MAX_NAME_LENGTH, moveBy, nextSortOrder, pendingOrders, type DiningTable } from '../../domain';
+import { diningTables, MAX_NAME_LENGTH, moveBy, nextSortOrder, pendingOrders, type DiningTable } from '../../domain';
 import { Modal } from '../../ui/Modal';
 import { MoveButtons, useCatalogChange } from './MenuSettings';
 
@@ -12,6 +12,7 @@ export function TableSettings() {
   const { busy, change } = useCatalogChange();
   const [editing, setEditing] = useState<DiningTable | 'new'>();
   const [deleting, setDeleting] = useState<DiningTable>();
+  const tables = diningTables(catalog);
 
   /** Why a table cannot be deleted right now, if anything stops it. */
   const inUse = (table: DiningTable) => {
@@ -31,9 +32,9 @@ export function TableSettings() {
       <p className="field-hint settings-hint">
         新增的桌位會自動產生 QR Code，請到 <Link to="/pos/qr">QR Code</Link> 頁列印。改名不影響已印好的 QR Code。
       </p>
-      {catalog.tables.length === 0 && <p className="empty-note">還沒有桌位</p>}
+      {tables.length === 0 && <p className="empty-note">還沒有桌位</p>}
       <ul className="settings-list">
-        {catalog.tables.map((table) => {
+        {tables.map((table) => {
           const reason = inUse(table);
           return (
             <li key={table.id}>
@@ -45,7 +46,7 @@ export function TableSettings() {
                 label={table.name}
                 disabled={busy}
                 onMove={(offset) => {
-                  const moved = moveBy(catalog.tables, table.id, offset);
+                  const moved = moveBy(tables, table.id, offset);
                   if (!moved) return;
                   void change(
                     moved.map((record) => ({ type: 'table/save', table: record, isNew: false })),
@@ -97,7 +98,7 @@ function TableDialog({ table, onClose }: { table?: DiningTable; onClose(): void 
           id: crypto.randomUUID(),
           name: trimmed,
           seats: seatCount,
-          sortOrder: nextSortOrder(catalog.tables),
+          sortOrder: nextSortOrder(diningTables(catalog)),
           qrToken: crypto.randomUUID(),
         };
     void change([{ type: 'table/save', table: saved, isNew: !table }], {

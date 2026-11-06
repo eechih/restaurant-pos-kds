@@ -109,6 +109,8 @@ export function DailyReportPage() {
             </tfoot>
           </table>
           <p className="field-hint report-note">
+            {report.takeout.orders > 0 &&
+              `其中外帶 ${report.takeout.orders} 筆，收款 ${formatMoney(report.takeout.received)}。`}
             現金實收 {formatMoney(report.byPayment.CASH.received - report.byPayment.CASH.refunded)}{' '}
             應等於收銀機現金減去開店時的零用金。
           </p>

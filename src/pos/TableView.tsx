@@ -53,7 +53,7 @@ export function TableView({ tableId }: { tableId: string }) {
 
   return (
     <div className="table-view">
-      <MenuPanel check={check} />
+      <MenuPanel draftKey={check.id} />
       <BillPanel check={check} />
     </div>
   );
@@ -71,15 +71,16 @@ function buildDraftLine(
   };
 }
 
-function MenuPanel({ check }: { check: GuestCheck }) {
+/** The menu to order from. Lines go to the draft under draftKey: a check, or takeout. */
+export function MenuPanel({ draftKey }: { draftKey: string }) {
   const { catalog, drafts, setDraft } = useApp();
   const [categoryId, setCategoryId] = useState(catalog.categories[0]?.id);
   const [configuring, setConfiguring] = useState<MenuItem>();
   const items = catalog.items.filter((item) => item.categoryId === categoryId);
 
   const addLine = (line: DraftLine) => {
-    const lines = drafts[check.id]?.lines ?? [];
-    setDraft(check.id, { orderId: crypto.randomUUID(), lines: [...lines, line] });
+    const lines = drafts[draftKey]?.lines ?? [];
+    setDraft(draftKey, { orderId: crypto.randomUUID(), lines: [...lines, line] });
   };
 
   return (
@@ -260,7 +261,14 @@ function BillPanel({ check }: { check: GuestCheck }) {
       </footer>
 
       {paying && draft && (
-        <PayDialog check={check} total={draftTotal} onClose={() => setPaying(false)} />
+        <PayDialog
+          draftKey={check.id}
+          tableId={check.tableId}
+          title={`${check.tableName} 收款`}
+          total={draftTotal}
+          onPaid={() => notify(`${check.tableName} 已收款並送廚`)}
+          onClose={() => setPaying(false)}
+        />
       )}
       {voiding && (
         <VoidDialog
@@ -273,20 +281,37 @@ function BillPanel({ check }: { check: GuestCheck }) {
   );
 }
 
-function PayDialog({ check, total, onClose }: { check: GuestCheck; total: number; onClose(): void }) {
-  const { drafts, setDraft, actions, notify } = useApp();
+/** Takes payment for the draft under draftKey and sends it to the kitchen. */
+export function PayDialog({
+  draftKey,
+  tableId,
+  title,
+  total,
+  onPaid,
+  onClose,
+}: {
+  draftKey: string;
+  tableId: string;
+  title: string;
+  total: number;
+  /** Receives the pickup number, for takeout. */
+  onPaid(pickupNumber?: number): void;
+  onClose(): void;
+}) {
+  const { drafts, setDraft, actions } = useApp();
   const { busy, run } = useAction();
   const [method, setMethod] = useState<PaymentMethod>('CASH');
 
   const pay = () =>
     run(async () => {
-      const draft = drafts[check.id];
+      const draft = drafts[draftKey];
       if (!draft) return;
+      let pickupNumber: number | undefined;
       try {
-        await actions.placeAndPay(
+        pickupNumber = await actions.placeAndPay(
           {
             orderId: draft.orderId,
-            tableId: check.tableId,
+            tableId,
             items: draft.lines.map(({ menuItemId, quantity, choiceIds, note }) => ({
               menuItemId,
               quantity,
@@ -300,18 +325,18 @@ function PayDialog({ check, total, onClose }: { check: GuestCheck; total: number
       } catch (error) {
         // An expired order id can never succeed, so a retry needs a new one.
         if (error instanceof OrderRejectedError && error.code === 'ORDER_EXPIRED') {
-          setDraft(check.id, { ...draft, orderId: crypto.randomUUID() });
+          setDraft(draftKey, { ...draft, orderId: crypto.randomUUID() });
         }
         throw error;
       }
-      setDraft(check.id, undefined);
-      notify(`${check.tableName} 已收款並送廚`);
+      setDraft(draftKey, undefined);
+      onPaid(pickupNumber);
       onClose();
     }, '收款失敗');
 
   return (
     <Modal
-      title={`${check.tableName} 收款`}
+      title={title}
       onClose={onClose}
       footer={
         <button className="button button-primary button-wide" disabled={busy} onClick={pay}>
@@ -343,7 +368,7 @@ function PayDialog({ check, total, onClose }: { check: GuestCheck; total: number
   );
 }
 
-function VoidDialog({
+export function VoidDialog({
   ticket,
   line,
   onClose,

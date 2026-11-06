@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { getRouteApi, Link } from '@tanstack/react-router';
-import { formatMoney, lineAmount, orderCode, type TicketStatus } from '../domain';
+import { formatMoney, isTakeout, lineAmount, orderCode, type TicketStatus } from '../domain';
 import { LineDetails } from '../ui/LineDetails';
 import { orderQuery } from './queries';
 
@@ -12,6 +12,12 @@ const KITCHEN_STATUS: Record<TicketStatus, { title: string; detail: string }> = 
   PREPARING: { title: '製作中', detail: '請稍候，完成後會為您送上。' },
   READY: { title: '已完成', detail: '餐點即將送上。' },
   SERVED: { title: '已上菜', detail: '請慢用。' },
+};
+const TAKEOUT_STATUS: Record<TicketStatus, { title: string; detail: string }> = {
+  NEW: { title: '已付款，等待製作', detail: '完成後會在叫號螢幕顯示您的號碼。' },
+  PREPARING: { title: '製作中', detail: '完成後會在叫號螢幕顯示您的號碼。' },
+  READY: { title: '請到櫃台取餐', detail: '您的餐點已完成。' },
+  SERVED: { title: '已取餐', detail: '謝謝光臨。' },
 };
 
 const formatTime = (iso: string) =>
@@ -44,7 +50,10 @@ export function OrderStatusPage() {
     );
   }
 
-  const kitchen = order.ticketStatus ? KITCHEN_STATUS[order.ticketStatus] : undefined;
+  const takeout = isTakeout(order);
+  const kitchen = order.ticketStatus
+    ? (takeout ? TAKEOUT_STATUS : KITCHEN_STATUS)[order.ticketStatus]
+    : undefined;
   const isVoided = (lineId: string) => order.voidedLineIds.includes(lineId);
   const refund = order.lines
     .filter((line) => isVoided(line.id))
@@ -57,16 +66,28 @@ export function OrderStatusPage() {
         {order.status === 'PENDING' && (
           <>
             <h2>請到櫃台付款</h2>
-            <p>告知訂單編號，付款後才會開始製作。</p>
+            <p>
+              告知訂單編號，付款後才會開始製作
+              {takeout ? '，並給您取餐號。' : '。'}
+            </p>
             <div className="order-code">#{orderCode(order.id)}</div>
             <p>應付 {formatMoney(order.total)}，請於 {formatTime(order.expiresAt)} 前完成</p>
           </>
         )}
         {order.status === 'PAID' && (
           <>
-            <h2>{allVoided ? '訂單已取消' : (kitchen?.title ?? '已付款')}</h2>
+            <h2 className={takeout && order.ticketStatus === 'READY' ? 'pickup-call' : undefined}>
+              {allVoided ? '訂單已取消' : (kitchen?.title ?? '已付款')}
+            </h2>
             {!allVoided && <p>{kitchen?.detail}</p>}
-            <div className="order-code">#{orderCode(order.id)}</div>
+            {takeout && order.pickupNumber != null ? (
+              <>
+                <p className="pickup-number-label">取餐號</p>
+                <div className="order-code pickup-number">{order.pickupNumber}</div>
+              </>
+            ) : (
+              <div className="order-code">#{orderCode(order.id)}</div>
+            )}
             <p>已付款 {formatMoney(order.total)}</p>
             {refund > 0 && (
               <p className="warning-note">有品項已取消，請到櫃台退款 {formatMoney(refund)}。</p>

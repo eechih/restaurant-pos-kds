@@ -4,6 +4,7 @@ import { Hub } from 'aws-amplify/utils';
 import type { Schema } from '../../amplify/data/resource';
 import {
   ConflictError,
+  isTakeout,
   type Catalog,
   type CatalogChange,
   type GuestCheck,
@@ -48,6 +49,7 @@ const toOrder = (raw: Schema['OrderRecord']['type']): Order => ({
   expiresAt: raw.expiresAt,
   paymentMethod: raw.paymentMethod,
   paidAt: raw.paidAt,
+  pickupNumber: raw.pickupNumber,
 });
 
 const toTicket = (raw: Schema['TicketRecord']['type']): KitchenTicket => ({
@@ -58,6 +60,7 @@ const toTicket = (raw: Schema['TicketRecord']['type']): KitchenTicket => ({
   status: raw.status,
   sentAt: raw.sentAt,
   lines: raw.lines,
+  pickupNumber: raw.pickupNumber,
 });
 
 const toVoid = (raw: Schema['VoidRecord']['type']): LineVoid => ({
@@ -75,7 +78,10 @@ const paymentEvents = ({
   check,
 }: NonNullable<Schema['PaymentConfirmation']['type']>): LiveEvent[] => [
   ...(check ? [{ type: 'check/upsert', check: toCheck(check) } as const] : []),
-  { type: 'seating/upsert', seating: { tableId: order.tableId, checkId: ticket.checkId } },
+  // Takeout seats nobody.
+  ...(isTakeout(order)
+    ? []
+    : [{ type: 'seating/upsert', seating: { tableId: order.tableId, checkId: ticket.checkId } } as const]),
   { type: 'order/upsert', order: toOrder(order) },
   { type: 'ticket/upsert', ticket: toTicket(ticket) },
 ];

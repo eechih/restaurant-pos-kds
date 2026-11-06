@@ -85,6 +85,8 @@ export interface Order {
   expiresAt: string;
   paymentMethod?: PaymentMethod | null;
   paidAt?: string | null;
+  /** Takeout only. Given when paid, counting from 1 each business day. */
+  pickupNumber?: number | null;
 }
 export interface KitchenTicket {
   id: string;
@@ -94,6 +96,8 @@ export interface KitchenTicket {
   status: TicketStatus;
   sentAt: string;
   lines: TicketLine[];
+  /** Takeout only. */
+  pickupNumber?: number | null;
 }
 export interface LineVoid {
   id: string;
@@ -134,6 +138,26 @@ export class OrderRejectedError extends Error {
 }
 
 export const voidId = (ticketId: string, lineId: string) => `${ticketId}#${lineId}`;
+
+/**
+ * The counter's takeout entry. It is a DiningTable record so that its QR code
+ * works like a table's, but it never seats anyone: each paid takeout order gets
+ * a check of its own and a pickup number instead.
+ */
+export const TAKEOUT_TABLE_ID = 'takeout';
+export const TAKEOUT_NAME = '外帶';
+export const isTakeout = (order: Pick<Order, 'tableId'>) => order.tableId === TAKEOUT_TABLE_ID;
+export const pickupLabel = (pickupNumber: number) => `${TAKEOUT_NAME} #${pickupNumber}`;
+
+/** Tables people sit at, leaving out the takeout entry. */
+export const diningTables = (catalog: Catalog) =>
+  catalog.tables.filter((table) => table.id !== TAKEOUT_TABLE_ID);
+
+/** Takeout tickets still to be handed over, oldest first. */
+export const openTakeoutTickets = (state: LiveState) =>
+  Object.values(state.tickets)
+    .filter((ticket) => ticket.pickupNumber != null && ticket.status !== 'SERVED' && !isFullyVoided(state, ticket))
+    .sort((a, b) => a.sentAt.localeCompare(b.sentAt));
 
 /** Fixed per order, so that confirming a payment twice cannot create two tickets. */
 export const ticketIdForOrder = (orderId: string) => `order-${orderId}`;
@@ -316,6 +340,10 @@ export const ORDER_LIFETIME_MS = 15 * 60_000;
  * table that reaches it recovers by itself.
  */
 export const MAX_PENDING_ORDERS_PER_TABLE = 10;
+/** The takeout entry is shared by every takeout customer, so it allows more. */
+export const MAX_PENDING_TAKEOUT_ORDERS = 30;
+export const pendingLimitFor = (tableId: string) =>
+  tableId === TAKEOUT_TABLE_ID ? MAX_PENDING_TAKEOUT_ORDERS : MAX_PENDING_ORDERS_PER_TABLE;
 const MAX_ORDER_LINES = 50;
 const MAX_LINE_QUANTITY = 99;
 const MAX_NOTE_LENGTH = 200;
@@ -556,6 +584,8 @@ export interface DailyReport {
   orders: number;
   received: number;
   refunded: number;
+  /** The takeout share of orders and takings. */
+  takeout: { orders: number; received: number };
   byPayment: Record<PaymentMethod, PaymentSummary>;
   /** Highest takings first. Cancelled quantities are counted apart. */
   items: ItemSales[];
@@ -572,12 +602,17 @@ export function dailyReport(orders: Order[], voids: LineVoid[]): DailyReport {
   const byPayment: Record<PaymentMethod, PaymentSummary> = { CASH: empty(), CARD: empty() };
   const items = new Map<string, ItemSales>();
   const refunds: RefundLine[] = [];
+  const takeout = { orders: 0, received: 0 };
 
   for (const order of orders) {
     if (order.status !== 'PAID' || !order.paymentMethod) continue;
     const payment = byPayment[order.paymentMethod];
     payment.orders += 1;
     payment.received += order.total;
+    if (isTakeout(order)) {
+      takeout.orders += 1;
+      takeout.received += order.total;
+    }
     for (const line of order.lines) {
       const amount = lineAmount(line);
       const key = `${line.menuItemId}\u0000${line.name}`;
@@ -594,7 +629,7 @@ export function dailyReport(orders: Order[], voids: LineVoid[]): DailyReport {
         payment.refunded += amount;
         refunds.push({
           voidedAt: lineVoid.voidedAt,
-          tableName: order.tableName,
+          tableName: order.pickupNumber != null ? pickupLabel(order.pickupNumber) : order.tableName,
           name: line.name,
           quantity: line.quantity,
           amount,
@@ -614,6 +649,7 @@ export function dailyReport(orders: Order[], voids: LineVoid[]): DailyReport {
     orders: methods.reduce((sum, method) => sum + method.orders, 0),
     received: methods.reduce((sum, method) => sum + method.received, 0),
     refunded: methods.reduce((sum, method) => sum + method.refunded, 0),
+    takeout,
     byPayment,
     items: [...items.values()].sort((a, b) => b.amount - a.amount || b.quantity - a.quantity),
     refunds: refunds.sort((a, b) => a.voidedAt.localeCompare(b.voidedAt)),
