@@ -4,6 +4,11 @@ import { createDemoCustomerRepository, createDemoRepository } from './data/demoR
 import { sampleCatalog } from './data/sampleCatalog';
 import {
   applyCatalogChange,
+  businessDate,
+  businessDay,
+  dailyReport,
+  isBusinessDate,
+  shiftDate,
   applyEvent,
   billTotal,
   buildLine,
@@ -506,4 +511,66 @@ test('an item that cannot be ordered is not saved', () => {
     [],
     'a choice may lower the price',
   );
+});
+
+test('a business day runs midnight to midnight in Taiwan', () => {
+  assert.deepEqual(businessDay('2026-11-06'), {
+    start: '2026-11-05T16:00:00.000Z',
+    end: '2026-11-06T16:00:00.000Z',
+  });
+  assert.equal(businessDate('2026-11-05T15:59:59.999Z'), '2026-11-05');
+  assert.equal(businessDate('2026-11-05T16:00:00.000Z'), '2026-11-06');
+  assert.equal(shiftDate('2026-03-01', -1), '2026-02-28');
+  assert.equal(shiftDate('2026-12-31', 1), '2027-01-01');
+  assert.ok(isBusinessDate('2026-02-28'));
+  assert.ok(!isBusinessDate('2026-02-30'));
+  assert.ok(!isBusinessDate('2026-2-3'));
+  assert.throws(() => businessDay('yesterday'));
+});
+
+test('the daily report adds up takings, refunds and items by payment method', async () => {
+  const { staff, customer, tableToken } = await demoRestaurant();
+  const tofu = [{ menuItemId: 'item-tofu', quantity: 2, choiceIds: [] }];
+  await customer.placeOrder({ orderId: 'o1', tableToken, items: greens, expectedTotal: 40 });
+  await customer.placeOrder({ orderId: 'o2', tableToken, items: [...greens, ...tofu], expectedTotal: 140 });
+  await customer.placeOrder({ orderId: 'o3', tableToken, items: greens, expectedTotal: 40 });
+  await staff.confirmOrderPayment('o1', 'CASH');
+  await staff.confirmOrderPayment('o2', 'CARD');
+  // o3 is never paid, so it is not takings.
+
+  const o2 = (await staff.loadLiveState()).orders.o2;
+  const tofuLine = o2.lines.find((line) => line.menuItemId === 'item-tofu');
+  assert.ok(tofuLine);
+  const ticketId = ticketIdForOrder('o2');
+  await staff.voidLine({
+    id: voidId(ticketId, tofuLine.id),
+    ticketId,
+    checkId: o2.checkId!,
+    lineId: tofuLine.id,
+    reason: '缺料',
+    voidedAt: new Date().toISOString(),
+  });
+
+  const today = businessDate(Date.now());
+  const { orders, voids } = await staff.getDailyRecords(today);
+  const report = dailyReport(orders, voids);
+  assert.equal(report.orders, 2);
+  assert.equal(report.received, 180);
+  assert.equal(report.refunded, 100);
+  assert.deepEqual(report.byPayment.CASH, { orders: 1, received: 40, refunded: 0 });
+  assert.deepEqual(report.byPayment.CARD, { orders: 1, received: 140, refunded: 100 });
+  assert.deepEqual(
+    report.items.map(({ name, quantity, amount, voidedQuantity }) => [name, quantity, amount, voidedQuantity]),
+    [
+      ['燙青菜', 2, 80, 0],
+      ['皮蛋豆腐', 0, 0, 2],
+    ],
+  );
+  assert.deepEqual(
+    report.refunds.map(({ name, amount, reason, paymentMethod }) => [name, amount, reason, paymentMethod]),
+    [['皮蛋豆腐', 100, '缺料', 'CARD']],
+  );
+
+  const other = await staff.getDailyRecords(shiftDate(today, -1));
+  assert.deepEqual(dailyReport(other.orders, other.voids).orders, 0, 'another day is empty');
 });

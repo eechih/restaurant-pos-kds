@@ -508,3 +508,114 @@ export interface StaffMember {
   invited: boolean;
   isSelf: boolean;
 }
+
+/** The restaurant's clock. Taiwan has no daylight saving, so a fixed offset is exact. */
+export const BUSINESS_UTC_OFFSET_MINUTES = 8 * 60;
+const OFFSET_MS = BUSINESS_UTC_OFFSET_MINUTES * 60_000;
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+/** The calendar date, in the restaurant's time zone, of an instant. */
+export const businessDate = (iso: string | number) =>
+  new Date(new Date(iso).getTime() + OFFSET_MS).toISOString().slice(0, 10);
+
+export const isBusinessDate = (date: string) =>
+  DATE_PATTERN.test(date) && businessDate(`${date}T00:00:00.000Z`) === date;
+
+/** The UTC instants a business date starts and ends at. The end is exclusive. */
+export function businessDay(date: string): { start: string; end: string } {
+  if (!isBusinessDate(date)) throw new Error(`not a date: ${date}`);
+  const start = Date.parse(`${date}T00:00:00.000Z`) - OFFSET_MS;
+  return { start: new Date(start).toISOString(), end: new Date(start + 86_400_000).toISOString() };
+}
+
+export const shiftDate = (date: string, days: number) =>
+  new Date(Date.parse(`${date}T00:00:00.000Z`) + days * 86_400_000).toISOString().slice(0, 10);
+
+export interface PaymentSummary {
+  orders: number;
+  received: number;
+  refunded: number;
+}
+export interface ItemSales {
+  menuItemId: string;
+  name: string;
+  quantity: number;
+  amount: number;
+  voidedQuantity: number;
+}
+export interface RefundLine {
+  voidedAt: string;
+  tableName: string;
+  name: string;
+  quantity: number;
+  amount: number;
+  reason: string;
+  paymentMethod: PaymentMethod;
+}
+export interface DailyReport {
+  orders: number;
+  received: number;
+  refunded: number;
+  byPayment: Record<PaymentMethod, PaymentSummary>;
+  /** Highest takings first. Cancelled quantities are counted apart. */
+  items: ItemSales[];
+  refunds: RefundLine[];
+}
+
+/**
+ * Sums a day's paid orders. A cancelled line is refunded the way its order was
+ * paid, so it counts against that payment method, on the day the order was paid.
+ */
+export function dailyReport(orders: Order[], voids: LineVoid[]): DailyReport {
+  const voidById = new Map(voids.map((lineVoid) => [lineVoid.id, lineVoid]));
+  const empty = (): PaymentSummary => ({ orders: 0, received: 0, refunded: 0 });
+  const byPayment: Record<PaymentMethod, PaymentSummary> = { CASH: empty(), CARD: empty() };
+  const items = new Map<string, ItemSales>();
+  const refunds: RefundLine[] = [];
+
+  for (const order of orders) {
+    if (order.status !== 'PAID' || !order.paymentMethod) continue;
+    const payment = byPayment[order.paymentMethod];
+    payment.orders += 1;
+    payment.received += order.total;
+    for (const line of order.lines) {
+      const amount = lineAmount(line);
+      const key = `${line.menuItemId}\u0000${line.name}`;
+      const sales = items.get(key) ?? {
+        menuItemId: line.menuItemId,
+        name: line.name,
+        quantity: 0,
+        amount: 0,
+        voidedQuantity: 0,
+      };
+      const lineVoid = voidById.get(voidId(ticketIdForOrder(order.id), line.id));
+      if (lineVoid) {
+        sales.voidedQuantity += line.quantity;
+        payment.refunded += amount;
+        refunds.push({
+          voidedAt: lineVoid.voidedAt,
+          tableName: order.tableName,
+          name: line.name,
+          quantity: line.quantity,
+          amount,
+          reason: lineVoid.reason,
+          paymentMethod: order.paymentMethod,
+        });
+      } else {
+        sales.quantity += line.quantity;
+        sales.amount += amount;
+      }
+      items.set(key, sales);
+    }
+  }
+
+  const methods = Object.values(byPayment);
+  return {
+    orders: methods.reduce((sum, method) => sum + method.orders, 0),
+    received: methods.reduce((sum, method) => sum + method.received, 0),
+    refunded: methods.reduce((sum, method) => sum + method.refunded, 0),
+    byPayment,
+    items: [...items.values()].sort((a, b) => b.amount - a.amount || b.quantity - a.quantity),
+    refunds: refunds.sort((a, b) => a.voidedAt.localeCompare(b.voidedAt)),
+  };
+}

@@ -1,6 +1,7 @@
 import {
   applyCatalogChange,
   applyEvent,
+  businessDate,
   ConflictError,
   effectiveOrderStatus,
   emptyLiveState,
@@ -226,6 +227,16 @@ export function createDemoRepository(storage: KeyValueStore = localStorage): Rep
     },
     async clearTable(tableId) {
       commit({ type: 'seating/delete', tableId });
+    },
+    async getDailyRecords(date) {
+      const { live } = read();
+      const orders = Object.values(live.orders).filter(
+        (order) => order.status === 'PAID' && order.paidAt && businessDate(order.paidAt) === date,
+      );
+      const ids = new Set(
+        orders.flatMap((order) => order.lines.map((line) => voidId(ticketIdForOrder(order.id), line.id))),
+      );
+      return { orders, voids: Object.values(live.voids).filter((lineVoid) => ids.has(lineVoid.id)) };
     },
     resetDemo() {
       storage.removeItem(STORAGE_KEY);

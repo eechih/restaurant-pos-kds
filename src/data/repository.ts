@@ -4,6 +4,7 @@ import type {
   GuestCheck,
   LineVoid,
   LiveEvent,
+  Order,
   LiveState,
   OrderItemInput,
   PaymentMethod,
@@ -62,6 +63,11 @@ export interface Repository {
   /** Safe to retry; voiding a voided line changes nothing. */
   voidLine(lineVoid: LineVoid): Promise<void>;
   clearTable(tableId: string): Promise<void>;
+  /**
+   * Managers only. Orders paid on a business date, and the cancellations of
+   * their lines whenever those happened.
+   */
+  getDailyRecords(date: string): Promise<{ orders: Order[]; voids: LineVoid[] }>;
   /** Missing in demo mode, which has no accounts. */
   readonly staff?: StaffDirectory;
   resetDemo?(): void;

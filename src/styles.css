@@ -228,6 +228,8 @@ p.field-hint { margin: 12px 0 0; }
 
 @media print {
   .topbar, .no-print { display: none !important; }
+  .settings .settings-panel { border: 0; padding: 0; }
+  .report-table { break-inside: avoid; }
   .app, .page { height: auto; overflow: visible; background: #fff; }
   .qr-card { border-color: #999; }
 }
@@ -263,6 +265,18 @@ a.button-primary { color: var(--primary-text); }
 .problem-list { margin: 0 0 10px; padding-left: 28px; }
 .invite-hint.field-hint { display: block; margin: 16px 0 0; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+.report-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.report-date.text-input { width: auto; min-height: 40px; }
+.report-table { width: 100%; border-collapse: collapse; margin: 16px 0 4px; font-variant-numeric: tabular-nums; }
+.report-table caption { text-align: left; font-weight: 700; font-size: 16px; padding-bottom: 6px; }
+.report-table th, .report-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: right; white-space: nowrap; }
+.report-table th[scope=row], .report-table .text-cell { text-align: left; }
+.report-table thead th { color: var(--muted); font-size: 13px; font-weight: 600; }
+.report-table thead th:first-child { text-align: left; }
+.report-table tfoot th, .report-table tfoot td { font-weight: 700; border-bottom: 0; border-top: 2px solid var(--text); }
+.report-table th[scope=row] { white-space: normal; }
+.report-note.field-hint { display: block; margin: 0 0 8px; }
 
 .toast {
   position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 10;

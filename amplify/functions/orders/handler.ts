@@ -9,7 +9,9 @@ import {
   TransactWriteCommand,
 } from '@aws-sdk/lib-dynamodb';
 import {
+  businessDay,
   effectiveOrderStatus,
+  isBusinessDate,
   MAX_PENDING_ORDERS_PER_TABLE,
   ORDER_LIFETIME_MS,
   OrderRejectedError,
@@ -17,6 +19,7 @@ import {
   ticketIdForOrder,
   voidId,
   type KitchenTicket,
+  type LineVoid,
   type MenuItem,
   type Order,
   type OrderItemInput,
@@ -299,6 +302,55 @@ async function confirmPayment(orderId: string, paymentMethod: PaymentMethod) {
   }
 }
 
+/** Every order paid on a business date, and the cancellations of their lines. */
+async function dailyRecords(date: string) {
+  if (!isBusinessDate(date)) throw new Error(`not a date: ${date}`);
+  const { start, end } = businessDay(date);
+  const orders: Order[] = [];
+  let ExclusiveStartKey: Record<string, unknown> | undefined;
+  do {
+    const page = await db.send(
+      new QueryCommand({
+        TableName: TABLES.order,
+        IndexName: 'ordersByStatusAndCreatedAt',
+        // An order can only be paid before it expires, so one paid that day was
+        // created at most one lifetime before the day began.
+        KeyConditionExpression: '#status = :paid AND createdAt BETWEEN :from AND :end',
+        FilterExpression: 'paidAt >= :start AND paidAt < :end',
+        ExpressionAttributeNames: { '#status': 'status' },
+        ExpressionAttributeValues: {
+          ':paid': 'PAID',
+          ':from': new Date(Date.parse(start) - ORDER_LIFETIME_MS).toISOString(),
+          ':start': start,
+          ':end': end,
+        },
+        ExclusiveStartKey,
+      }),
+    );
+    orders.push(...((page.Items ?? []) as Order[]));
+    ExclusiveStartKey = page.LastEvaluatedKey;
+  } while (ExclusiveStartKey);
+
+  const keys = orders.flatMap((order) =>
+    order.lines.map((line) => ({ id: voidId(ticketIdForOrder(order.id), line.id) })),
+  );
+  const voids: LineVoid[] = [];
+  for (let index = 0; index < keys.length; index += 100) {
+    let pending: Record<string, unknown>[] = keys.slice(index, index + 100);
+    // DynamoDB may return part of a batch when busy; the rest is asked for again.
+    for (let attempt = 0; pending.length > 0 && attempt < 5; attempt += 1) {
+      if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 100 * 2 ** attempt));
+      const result = await db.send(
+        new BatchGetCommand({ RequestItems: { [TABLES.lineVoid]: { Keys: pending } } }),
+      );
+      voids.push(...((result.Responses?.[TABLES.lineVoid] ?? []) as LineVoid[]));
+      pending = result.UnprocessedKeys?.[TABLES.lineVoid]?.Keys ?? [];
+    }
+    if (pending.length > 0) throw new Error('could not read every cancellation');
+  }
+  return { orders, voids };
+}
+
 async function tableForToken(tableToken: string) {
   const { Items } = await db.send(
     new QueryCommand({
@@ -342,6 +394,8 @@ export const handler = async ({ fieldName, arguments: args }: Event) => {
       const table = await tableForToken(args.tableToken);
       return table ? { name: table.name } : null;
     }
+    case 'getDailyRecords':
+      return dailyRecords(args.date);
     case 'getCustomerOrder': {
       const order = await getOrder(args.orderId);
       return order ? toCustomerOrder(order) : null;

@@ -61,6 +61,7 @@
 | `#/pos/settings/menu` | `_staff.pos.settings.menu.tsx` | `MenuSettings` | 店長 |
 | `#/pos/settings/tables` | `_staff.pos.settings.tables.tsx` | `TableSettings` | 店長 |
 | `#/pos/settings/staff` | `_staff.pos.settings.staff.tsx` | `StaffSettings` | 店長 |
+| `#/pos/settings/report` | `_staff.pos.settings.report.tsx` | `DailyReportPage` | 店長 |
 | `#/order/$tableToken` | `order.$tableToken.index.tsx` | 顧客菜單（`MenuPage`） | 顧客，不需登入 |
 | `#/order/$tableToken/$orderId` | `order.$tableToken.$orderId.tsx` | 顧客訂單狀態（`OrderStatusPage`） | 顧客，不需登入 |
 

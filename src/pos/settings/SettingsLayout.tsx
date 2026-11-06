@@ -9,12 +9,13 @@ export function SettingsLayout() {
   }
   return (
     <div className="settings">
-      <nav className="tabs" aria-label="店務設定">
+      <nav className="tabs no-print" aria-label="店務設定">
         {(
           [
             ['/pos/settings/menu', '菜單'],
             ['/pos/settings/tables', '桌位'],
             ['/pos/settings/staff', '員工帳號'],
+            ['/pos/settings/report', '日結報表'],
           ] as const
         ).map(([to, label]) => (
           <Link key={to} to={to} className="tab" activeProps={{ className: 'tab is-selected' }}>

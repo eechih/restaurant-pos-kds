@@ -22,6 +22,7 @@ import { Route as OrderTableTokenIndexRouteImport } from './routes/order.$tableT
 import { Route as OrderTableTokenOrderIdRouteImport } from './routes/order.$tableToken.$orderId'
 import { Route as StaffPosSettingsIndexRouteImport } from './routes/_staff.pos.settings.index'
 import { Route as StaffPosSettingsMenuRouteImport } from './routes/_staff.pos.settings.menu'
+import { Route as StaffPosSettingsReportRouteImport } from './routes/_staff.pos.settings.report'
 import { Route as StaffPosSettingsStaffRouteImport } from './routes/_staff.pos.settings.staff'
 import { Route as StaffPosSettingsTablesRouteImport } from './routes/_staff.pos.settings.tables'
 import { Route as StaffPosTableTableIdRouteImport } from './routes/_staff.pos.table.$tableId'
@@ -90,6 +91,11 @@ const StaffPosSettingsMenuRoute = StaffPosSettingsMenuRouteImport.update({
   path: '/menu',
   getParentRoute: () => StaffPosSettingsRoute,
 } as any)
+const StaffPosSettingsReportRoute = StaffPosSettingsReportRouteImport.update({
+  id: '/report',
+  path: '/report',
+  getParentRoute: () => StaffPosSettingsRoute,
+} as any)
 const StaffPosSettingsStaffRoute = StaffPosSettingsStaffRouteImport.update({
   id: '/staff',
   path: '/staff',
@@ -118,6 +124,7 @@ export interface FileRoutesByFullPath {
   '/pos/': typeof StaffPosIndexRoute
   '/order/$tableToken/': typeof OrderTableTokenIndexRoute
   '/pos/settings/menu': typeof StaffPosSettingsMenuRoute
+  '/pos/settings/report': typeof StaffPosSettingsReportRoute
   '/pos/settings/staff': typeof StaffPosSettingsStaffRoute
   '/pos/settings/tables': typeof StaffPosSettingsTablesRoute
   '/pos/table/$tableId': typeof StaffPosTableTableIdRoute
@@ -132,6 +139,7 @@ export interface FileRoutesByTo {
   '/pos': typeof StaffPosIndexRoute
   '/order/$tableToken': typeof OrderTableTokenIndexRoute
   '/pos/settings/menu': typeof StaffPosSettingsMenuRoute
+  '/pos/settings/report': typeof StaffPosSettingsReportRoute
   '/pos/settings/staff': typeof StaffPosSettingsStaffRoute
   '/pos/settings/tables': typeof StaffPosSettingsTablesRoute
   '/pos/table/$tableId': typeof StaffPosTableTableIdRoute
@@ -151,6 +159,7 @@ export interface FileRoutesById {
   '/_staff/pos/': typeof StaffPosIndexRoute
   '/order/$tableToken/': typeof OrderTableTokenIndexRoute
   '/_staff/pos/settings/menu': typeof StaffPosSettingsMenuRoute
+  '/_staff/pos/settings/report': typeof StaffPosSettingsReportRoute
   '/_staff/pos/settings/staff': typeof StaffPosSettingsStaffRoute
   '/_staff/pos/settings/tables': typeof StaffPosSettingsTablesRoute
   '/_staff/pos/table/$tableId': typeof StaffPosTableTableIdRoute
@@ -170,6 +179,7 @@ export interface FileRouteTypes {
     | '/pos/'
     | '/order/$tableToken/'
     | '/pos/settings/menu'
+    | '/pos/settings/report'
     | '/pos/settings/staff'
     | '/pos/settings/tables'
     | '/pos/table/$tableId'
@@ -184,6 +194,7 @@ export interface FileRouteTypes {
     | '/pos'
     | '/order/$tableToken'
     | '/pos/settings/menu'
+    | '/pos/settings/report'
     | '/pos/settings/staff'
     | '/pos/settings/tables'
     | '/pos/table/$tableId'
@@ -202,6 +213,7 @@ export interface FileRouteTypes {
     | '/_staff/pos/'
     | '/order/$tableToken/'
     | '/_staff/pos/settings/menu'
+    | '/_staff/pos/settings/report'
     | '/_staff/pos/settings/staff'
     | '/_staff/pos/settings/tables'
     | '/_staff/pos/table/$tableId'
@@ -307,6 +319,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof StaffPosSettingsMenuRouteImport
       parentRoute: typeof StaffPosSettingsRoute
     }
+    '/_staff/pos/settings/report': {
+      id: '/_staff/pos/settings/report'
+      path: '/report'
+      fullPath: '/pos/settings/report'
+      preLoaderRoute: typeof StaffPosSettingsReportRouteImport
+      parentRoute: typeof StaffPosSettingsRoute
+    }
     '/_staff/pos/settings/staff': {
       id: '/_staff/pos/settings/staff'
       path: '/staff'
@@ -333,6 +352,7 @@ declare module '@tanstack/react-router' {
 
 interface StaffPosSettingsRouteChildren {
   StaffPosSettingsMenuRoute: typeof StaffPosSettingsMenuRoute
+  StaffPosSettingsReportRoute: typeof StaffPosSettingsReportRoute
   StaffPosSettingsStaffRoute: typeof StaffPosSettingsStaffRoute
   StaffPosSettingsTablesRoute: typeof StaffPosSettingsTablesRoute
   StaffPosSettingsIndexRoute: typeof StaffPosSettingsIndexRoute
@@ -340,6 +360,7 @@ interface StaffPosSettingsRouteChildren {
 
 const StaffPosSettingsRouteChildren: StaffPosSettingsRouteChildren = {
   StaffPosSettingsMenuRoute: StaffPosSettingsMenuRoute,
+  StaffPosSettingsReportRoute: StaffPosSettingsReportRoute,
   StaffPosSettingsStaffRoute: StaffPosSettingsStaffRoute,
   StaffPosSettingsTablesRoute: StaffPosSettingsTablesRoute,
   StaffPosSettingsIndexRoute: StaffPosSettingsIndexRoute,

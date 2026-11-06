@@ -60,7 +60,7 @@ const toTicket = (raw: Schema['TicketRecord']['type']): KitchenTicket => ({
   lines: raw.lines,
 });
 
-const toVoid = (raw: Schema['LineVoid']['type']): LineVoid => ({
+const toVoid = (raw: Schema['VoidRecord']['type']): LineVoid => ({
   id: raw.id,
   ticketId: raw.ticketId,
   checkId: raw.checkId,
@@ -336,6 +336,12 @@ export function createAmplifyRepository(): Repository {
 
     async clearTable(tableId) {
       unwrap(await models.Seating.delete({ tableId }));
+    },
+
+    async getDailyRecords(date) {
+      const records = unwrap(await queries.getDailyRecords({ date }));
+      if (!records) throw new Error('failed to load the daily report');
+      return { orders: records.orders.map(toOrder), voids: records.voids.map(toVoid) };
     },
   };
 }

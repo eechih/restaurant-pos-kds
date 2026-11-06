@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useState } from 'react';
-import type { StaffDirectory } from './data/repository';
+import type { Repository, StaffDirectory } from './data/repository';
 import type { LiveStatus } from './data/useLiveState';
 import {
   ORDER_REJECTION_MESSAGE,
@@ -56,6 +56,8 @@ export interface AppContextValue {
   role: StaffRole;
   /** Missing in demo mode. */
   staff?: StaffDirectory;
+  /** Reads for managers' reports, which are fetched per page rather than kept live. */
+  reports: Pick<Repository, 'getDailyRecords'>;
   catalog: Catalog;
   catalogState: 'loading' | 'ready' | 'failed';
   live: LiveStatus;

@@ -117,6 +117,7 @@ export function App({ repository, role, userLabel, onSignOut }: AppProps) {
     () => ({
       role,
       staff: repository.staff,
+      reports: repository,
       catalog,
       catalogState,
       live,

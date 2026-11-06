@@ -193,6 +193,18 @@ const schema = a
       tableName: a.string().required(),
       openedAt: a.datetime().required(),
     }),
+    VoidRecord: a.customType({
+      id: a.id().required(),
+      ticketId: a.id().required(),
+      checkId: a.id().required(),
+      lineId: a.id().required(),
+      reason: a.string().required(),
+      voidedAt: a.datetime().required(),
+    }),
+    DailyRecords: a.customType({
+      orders: a.ref('OrderRecord').required().array().required(),
+      voids: a.ref('VoidRecord').required().array().required(),
+    }),
     // Carries the records themselves, because the data API reads are eventually
     // consistent and could miss what the transaction just wrote. check is set only
     // when this payment opened the table.
@@ -289,6 +301,13 @@ const schema = a
         allow.authenticated('identityPool'),
         allow.authenticated(),
       ])
+      .handler(a.handler.function(orders)),
+    // The orders paid on a business date, for the manager's daily report.
+    getDailyRecords: a
+      .query()
+      .arguments({ date: a.string().required() })
+      .returns(a.ref('DailyRecords'))
+      .authorization((allow) => [allow.group(MANAGER_GROUP)])
       .handler(a.handler.function(orders)),
     getCustomerTable: a
       .query()
