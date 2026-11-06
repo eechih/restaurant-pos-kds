@@ -37,7 +37,8 @@ function QrCode({ value, label }: { value: string; label: string }) {
 }
 
 export function QrCodesPage() {
-  const { catalog } = useApp();
+  const { catalog, role } = useApp();
+  const isManager = role === 'MANAGER';
   const [rotating, setRotating] = useState<DiningTable>();
   const isLocal = ['localhost', '127.0.0.1'].includes(window.location.hostname);
 
@@ -63,15 +64,17 @@ export function QrCodesPage() {
                   <a className="link-button" href={customerUrl(table.qrToken)} target="_blank" rel="noreferrer">
                     開啟點餐頁
                   </a>
-                  <button className="link-button" onClick={() => setRotating(table)}>
-                    重新產生
-                  </button>
+                  {isManager && (
+                    <button className="link-button" onClick={() => setRotating(table)}>
+                      重新產生
+                    </button>
+                  )}
                 </div>
               </>
             ) : (
               <>
                 <p className="empty-note">這張桌子還沒有 QR Code</p>
-                <GenerateButton table={table} />
+                {isManager ? <GenerateButton table={table} /> : <p className="field-hint no-print">請店長產生</p>}
               </>
             )}
           </section>

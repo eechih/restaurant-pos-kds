@@ -31,7 +31,8 @@
 | 角色 | 可以做的事 |
 |---|---|
 | 顧客（未登入） | 讀菜單與促銷、用 token 查桌名、呼叫 `placeOrder`、用訂單 ID 查自己的訂單 |
-| 員工（已登入） | 確認櫃台收款、操作 KDS、管理桌況 |
+| 員工（已登入） | 確認櫃台收款、操作 KDS、管理桌況、切換售完 |
+| 店長（`MANAGER` 群組） | 員工能做的事，加上修改菜單、桌位、QR Code 和員工帳號 |
 | 後端 Lambda | 計價、建立訂單、建立 `KitchenTicket` |
 
 規則如下：
@@ -56,7 +57,7 @@
 | `tableState` | 只分 `EMPTY`、`DINING`。有 `Seating` 就是用餐中，由員工清桌 |
 | `KitchenTicket` | 內容不變，只由 Lambda 建立，ID 由 `orderId` 推導。員工只能更新狀態 |
 | `LineVoid` | 付款後取消品項會顯示在顧客的訂單頁，並提示到櫃台退款；第 4 階段才連動退款 |
-| `MenuItem` | 新增 `available`（售完），員工在 `#/pos/availability` 切換。`featured` 留到第 5 階段 |
+| `MenuItem` | 新增 `available`（售完），員工在 `#/pos/availability` 透過 `setItemAvailable` 切換，其他欄位只有店長能改。`featured` 留到第 5 階段 |
 | `DiningTable` | 新增 `qrToken`，訪客不可讀 |
 
 ## 關鍵規則

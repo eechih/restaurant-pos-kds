@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { createDemoCustomerRepository, createDemoRepository } from './data/demoRepository';
 import { sampleCatalog } from './data/sampleCatalog';
 import {
+  applyCatalogChange,
   applyEvent,
   billTotal,
   buildLine,
@@ -11,8 +12,11 @@ import {
   emptyLiveState,
   isFullyVoided,
   MAX_PENDING_ORDERS_PER_TABLE,
+  menuItemProblems,
   missingRequiredGroups,
+  moveBy,
   nextRound,
+  nextSortOrder,
   OrderRejectedError,
   pendingOrders,
   priceOrder,
@@ -388,4 +392,118 @@ test('an expired order cannot be paid', async (context) => {
   assert.equal((await customer.getOrder('o1'))?.status, 'EXPIRED');
   await assert.rejects(staff.confirmOrderPayment('o1', 'CASH'), rejection('ORDER_EXPIRED'));
   assert.deepEqual((await staff.loadLiveState()).tickets, {});
+});
+
+test('an edited item keeps its sold out flag, and a new one starts available', async () => {
+  const { staff, customer, tableToken } = await demoRestaurant();
+  const greensItem = (await staff.getCatalog()).items.find((item) => item.id === 'item-greens');
+  assert.ok(greensItem);
+  await staff.setItemAvailable('item-greens', false);
+
+  // The editor opened before the item sold out, so its copy is still available.
+  await staff.changeCatalog([
+    { type: 'item/save', item: { ...greensItem, price: 45, available: true }, isNew: false },
+    {
+      type: 'item/save',
+      item: { ...greensItem, id: 'item-new', name: '燙地瓜葉', sortOrder: 999, available: false },
+      isNew: true,
+    },
+  ]);
+  const items = (await staff.getCatalog()).items;
+  const edited = items.find((item) => item.id === 'item-greens');
+  assert.equal(edited?.price, 45);
+  assert.equal(edited?.available, false, 'saving does not undo sold out');
+  assert.equal(items.find((item) => item.id === 'item-new')?.available, null);
+  assert.equal(items.at(-1)?.id, 'item-new', 'items stay in sort order');
+
+  const order = await customer.placeOrder({
+    orderId: 'o1',
+    tableToken,
+    items: [{ menuItemId: 'item-new', quantity: 1, choiceIds: [] }],
+    expectedTotal: 40,
+  });
+  assert.equal(order.lines[0].name, '燙地瓜葉');
+});
+
+test('editing a table keeps its QR code working', async () => {
+  const { staff, customer, table, tableToken } = await demoRestaurant();
+  await staff.changeCatalog([
+    { type: 'table/save', table: { ...table, name: '窗邊 1', qrToken: 'stale' }, isNew: false },
+  ]);
+  assert.deepEqual(await customer.getTable(tableToken), { name: '窗邊 1' });
+
+  await staff.changeCatalog([{ type: 'table/delete', id: table.id }]);
+  assert.equal(await customer.getTable(tableToken), null, 'a deleted table stops taking orders');
+});
+
+test('a price change rejects orders priced from the old menu', async () => {
+  const { staff, customer, tableToken } = await demoRestaurant();
+  const greensItem = (await staff.getCatalog()).items.find((item) => item.id === 'item-greens');
+  assert.ok(greensItem);
+  await staff.changeCatalog([{ type: 'item/save', item: { ...greensItem, price: 50 }, isNew: false }]);
+  await assert.rejects(
+    customer.placeOrder({ orderId: 'o1', tableToken, items: greens, expectedTotal: 40 }),
+    rejection('PRICE_CHANGED'),
+  );
+});
+
+test('a deleted category or item disappears from the catalog', () => {
+  let catalog = applyCatalogChange(sampleCatalog, { type: 'item/delete', id: 'item-greens' });
+  assert.ok(!catalog.items.some((item) => item.id === 'item-greens'));
+  const [category] = catalog.categories;
+  catalog = applyCatalogChange(catalog, { type: 'category/delete', id: category.id });
+  assert.ok(!catalog.categories.some((candidate) => candidate.id === category.id));
+});
+
+test('moving a record swaps it with its neighbour', () => {
+  const records = [
+    { id: 'a', sortOrder: 10 },
+    { id: 'b', sortOrder: 20 },
+    { id: 'c', sortOrder: 30 },
+  ];
+  assert.deepEqual(moveBy(records, 'b', -1), [
+    { id: 'b', sortOrder: 10 },
+    { id: 'a', sortOrder: 20 },
+  ]);
+  assert.deepEqual(moveBy(records, 'b', 1), [
+    { id: 'b', sortOrder: 30 },
+    { id: 'c', sortOrder: 20 },
+  ]);
+  assert.equal(moveBy(records, 'a', -1), undefined);
+  assert.equal(moveBy(records, 'c', 1), undefined);
+  assert.deepEqual(moveBy([{ id: 'a', sortOrder: 1 }, { id: 'b', sortOrder: 1 }], 'b', -1), [
+    { id: 'b', sortOrder: 0 },
+  ]);
+  assert.equal(nextSortOrder(records), 40);
+  assert.equal(nextSortOrder([]), 10);
+});
+
+test('an item that cannot be ordered is not saved', () => {
+  const item = sampleCatalog.items.find((candidate) => candidate.optionGroups.length > 0);
+  assert.ok(item);
+  assert.deepEqual(menuItemProblems(item), []);
+  assert.deepEqual(menuItemProblems({ ...item, name: ' ', price: 1.5 }), [
+    '品名必填，最多 40 字',
+    '價格要是 0 到 100000 的整數',
+  ]);
+  const [group] = item.optionGroups;
+  assert.deepEqual(
+    menuItemProblems({ ...item, optionGroups: [{ ...group, choices: [] }] }),
+    [`「${group.name}」至少要有一個選項`],
+  );
+  assert.deepEqual(
+    menuItemProblems({
+      ...item,
+      optionGroups: [{ ...group, choices: [group.choices[0], { ...group.choices[0], id: 'x' }] }],
+    }),
+    [`「${group.name}」有重複的選項`],
+  );
+  assert.deepEqual(
+    menuItemProblems({
+      ...item,
+      optionGroups: [{ ...group, choices: [{ ...group.choices[0], priceDelta: -10 }] }],
+    }),
+    [],
+    'a choice may lower the price',
+  );
 });

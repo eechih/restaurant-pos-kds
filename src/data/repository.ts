@@ -1,11 +1,14 @@
 import type {
   Catalog,
+  CatalogChange,
   GuestCheck,
   LineVoid,
   LiveEvent,
   LiveState,
   OrderItemInput,
   PaymentMethod,
+  StaffMember,
+  StaffRole,
   TicketStatus,
 } from '../domain';
 
@@ -14,11 +17,25 @@ export interface LiveHandlers {
   onConnection(online: boolean): void;
 }
 
+/** Managers' control of staff accounts. Rejects with UserFacingError when a change is refused. */
+export interface StaffDirectory {
+  list(): Promise<StaffMember[]>;
+  /** Emails a temporary password. */
+  invite(email: string, role: StaffRole): Promise<void>;
+  /** Sends a new temporary password to someone who has not signed in yet. */
+  resendInvite(email: string): Promise<void>;
+  setRole(username: string, role: StaffRole): Promise<void>;
+  /** Disabling also signs them out of other devices. */
+  setEnabled(username: string, enabled: boolean): Promise<void>;
+}
+
 /** Staff access. Implemented by AWS Amplify, and by browser storage for local demo mode. */
 export interface Repository {
   readonly mode: 'amplify' | 'demo';
   getCatalog(): Promise<Catalog>;
   seedCatalog(): Promise<void>;
+  /** Managers only. */
+  changeCatalog(changes: CatalogChange[]): Promise<void>;
   setItemAvailable(itemId: string, available: boolean): Promise<void>;
   /** Issues a new QR token for the table, which stops its old QR code working. */
   rotateTableToken(tableId: string): Promise<void>;
@@ -45,5 +62,7 @@ export interface Repository {
   /** Safe to retry; voiding a voided line changes nothing. */
   voidLine(lineVoid: LineVoid): Promise<void>;
   clearTable(tableId: string): Promise<void>;
+  /** Missing in demo mode, which has no accounts. */
+  readonly staff?: StaffDirectory;
   resetDemo?(): void;
 }

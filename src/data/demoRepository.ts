@@ -1,4 +1,5 @@
 import {
+  applyCatalogChange,
   applyEvent,
   ConflictError,
   effectiveOrderStatus,
@@ -111,6 +112,10 @@ export function createDemoRepository(storage: KeyValueStore = localStorage): Rep
           })),
         },
       });
+    },
+    async changeCatalog(changes) {
+      const data = read();
+      write({ ...data, catalog: changes.reduce(applyCatalogChange, data.catalog) });
     },
     async setItemAvailable(itemId, available) {
       const data = read();

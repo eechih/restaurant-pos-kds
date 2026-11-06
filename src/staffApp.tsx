@@ -16,5 +16,6 @@ export async function loadStaffApp(): Promise<{ default: ComponentType }> {
     import('./data/demoRepository'),
   ]);
   const repository = createDemoRepository();
-  return { default: () => <App repository={repository} /> };
+  // Demo mode has no accounts, so whoever uses it can edit everything.
+  return { default: () => <App repository={repository} role="MANAGER" /> };
 }

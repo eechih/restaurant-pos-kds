@@ -50,18 +50,22 @@
 
 ## 目前的結構
 
-| 網址 | 路由檔案（`src/routes/`） | 頁面 | 需要登入 |
+| 網址 | 路由檔案（`src/routes/`） | 頁面 | 誰可以用 |
 |---|---|---|---|
-| `#/` | `index.tsx` | 轉址到 `#/pos` | 否 |
-| `#/pos` | `_staff.pos.index.tsx` | `FloorView` | 是 |
-| `#/pos/table/$tableId` | `_staff.pos.table.$tableId.tsx` | `TableView` | 是 |
-| `#/kds` | `_staff.kds.tsx` | `KdsPage` | 是 |
-| `#/pos/availability` | `_staff.pos.availability.tsx` | `AvailabilityPage` | 是 |
-| `#/pos/qr` | `_staff.pos.qr.tsx` | `QrCodesPage` | 是 |
-| `#/order/$tableToken` | `order.$tableToken.index.tsx` | 顧客菜單（`MenuPage`） | 否 |
-| `#/order/$tableToken/$orderId` | `order.$tableToken.$orderId.tsx` | 顧客訂單狀態（`OrderStatusPage`） | 否 |
+| `#/` | `index.tsx` | 轉址到 `#/pos` | 所有人 |
+| `#/pos` | `_staff.pos.index.tsx` | `FloorView` | 員工 |
+| `#/pos/table/$tableId` | `_staff.pos.table.$tableId.tsx` | `TableView` | 員工 |
+| `#/kds` | `_staff.kds.tsx` | `KdsPage` | 員工 |
+| `#/pos/availability` | `_staff.pos.availability.tsx` | `AvailabilityPage` | 員工 |
+| `#/pos/qr` | `_staff.pos.qr.tsx` | `QrCodesPage` | 員工；重新產生只限店長 |
+| `#/pos/settings/menu` | `_staff.pos.settings.menu.tsx` | `MenuSettings` | 店長 |
+| `#/pos/settings/tables` | `_staff.pos.settings.tables.tsx` | `TableSettings` | 店長 |
+| `#/pos/settings/staff` | `_staff.pos.settings.staff.tsx` | `StaffSettings` | 店長 |
+| `#/order/$tableToken` | `order.$tableToken.index.tsx` | 顧客菜單（`MenuPage`） | 顧客，不需登入 |
+| `#/order/$tableToken/$orderId` | `order.$tableToken.$orderId.tsx` | 顧客訂單狀態（`OrderStatusPage`） | 顧客，不需登入 |
 
 - **`_staff` 版面：** 員工頁面都掛在這層底下。它透過 `src/staffApp.tsx` 按需載入後端實作、登入介面和 `App`，所以顧客端不會下載這些程式碼，新增員工頁面時也要放在這層底下。
+- **角色：** `AmplifyRoot` 從 access token 的 `cognito:groups` 判斷是否為店長，放進 `useApp().role`。前端只用它決定顯示哪些頁面和按鈕，真正的限制在後端的授權規則。
 - **網址：** 使用 hash history，靜態託管不需要 rewrite 設定。
 - **`src/routeTree.gen.ts`：** 由 Vite 外掛產生，要 commit，因為 `npm run build` 會先跑 `tsc`，但不要手動修改。
 - **目錄資料：** `src/data/catalogQuery.ts` 取代了手動載入。`AppContext` 的 `catalog` 和 `catalogState` 由它推導，現有畫面不用改。

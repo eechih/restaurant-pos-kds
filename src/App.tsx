@@ -6,19 +6,21 @@ import type { Repository } from './data/repository';
 import { useLiveState } from './data/useLiveState';
 import { emptyCatalog, type Actions, AppContext, type AppContextValue, type Draft } from './appContext';
 import { ArrivalAlert } from './ArrivalAlert';
-import { OrderRejectedError } from './domain';
+import { OrderRejectedError, type StaffRole } from './domain';
 
 interface AppProps {
   repository: Repository;
+  role: StaffRole;
   userLabel?: string;
   onSignOut?: () => void;
 }
 
-export function App({ repository, userLabel, onSignOut }: AppProps) {
+export function App({ repository, role, userLabel, onSignOut }: AppProps) {
   const pathname = useLocation({ select: (location) => location.pathname });
   const isKds = pathname.startsWith('/kds');
   const isQr = pathname.startsWith('/pos/qr');
   const isAvailability = pathname.startsWith('/pos/availability');
+  const isSettings = pathname.startsWith('/pos/settings');
   const queryClient = useQueryClient();
   const live = useLiveState(repository);
   const { dispatch } = live;
@@ -59,6 +61,14 @@ export function App({ repository, userLabel, onSignOut }: AppProps) {
       async seedCatalog() {
         await repository.seedCatalog();
         await reloadCatalog();
+      },
+      async changeCatalog(changes) {
+        try {
+          await repository.changeCatalog(changes);
+        } finally {
+          // Part of a failed change may have been saved.
+          await reloadCatalog();
+        }
       },
       async setItemAvailable(itemId, available) {
         await repository.setItemAvailable(itemId, available);
@@ -104,8 +114,18 @@ export function App({ repository, userLabel, onSignOut }: AppProps) {
   );
 
   const context = useMemo(
-    () => ({ catalog, catalogState, live, actions, drafts, setDraft, notify }),
-    [catalog, catalogState, live, actions, drafts, setDraft, notify],
+    () => ({
+      role,
+      staff: repository.staff,
+      catalog,
+      catalogState,
+      live,
+      actions,
+      drafts,
+      setDraft,
+      notify,
+    }),
+    [role, repository, catalog, catalogState, live, actions, drafts, setDraft, notify],
   );
 
   return (
@@ -113,10 +133,15 @@ export function App({ repository, userLabel, onSignOut }: AppProps) {
       <div className={isKds ? 'app theme-kds' : 'app'}>
         <header className="topbar">
           <nav className="topbar-nav" aria-label="主要頁面">
-            <Link to="/pos" className={isKds || isQr || isAvailability ? '' : 'is-active'}>POS</Link>
+            <Link to="/pos" className={isKds || isQr || isAvailability || isSettings ? '' : 'is-active'}>
+              POS
+            </Link>
             <Link to="/kds" className={isKds ? 'is-active' : ''}>KDS 廚房</Link>
             <Link to="/pos/availability" className={isAvailability ? 'is-active' : ''}>售完管理</Link>
             <Link to="/pos/qr" className={isQr ? 'is-active' : ''}>QR Code</Link>
+            {role === 'MANAGER' && (
+              <Link to="/pos/settings" className={isSettings ? 'is-active' : ''}>店務設定</Link>
+            )}
           </nav>
           <div className="topbar-status">
             <ArrivalAlert isKds={isKds} />
@@ -138,7 +163,12 @@ export function App({ repository, userLabel, onSignOut }: AppProps) {
             <span className={live.online && !live.syncError ? 'badge badge-ok' : 'badge badge-danger'} role="status">
               {!live.online ? '連線中斷，正在重連' : live.syncError ? '同步失敗，將自動重試' : '已連線'}
             </span>
-            {userLabel && <span className="topbar-user">{userLabel}</span>}
+            {userLabel && (
+              <span className="topbar-user">
+                {userLabel}
+                {role === 'MANAGER' && '（店長）'}
+              </span>
+            )}
             {onSignOut && <button className="link-button" onClick={onSignOut}>登出</button>}
           </div>
         </header>

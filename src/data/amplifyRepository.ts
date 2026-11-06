@@ -5,6 +5,7 @@ import type { Schema } from '../../amplify/data/resource';
 import {
   ConflictError,
   type Catalog,
+  type CatalogChange,
   type GuestCheck,
   type KitchenTicket,
   type LineVoid,
@@ -15,7 +16,7 @@ import {
   type TicketStatus,
 } from '../domain';
 import { listAll, type ModelResult, toCategories, toMenuItems, unwrap } from './amplifyHelpers';
-import type { Repository } from './repository';
+import type { Repository, StaffDirectory } from './repository';
 import { sampleCatalog } from './sampleCatalog';
 
 const ignoreConflict = (error: unknown) => {
@@ -84,10 +85,64 @@ const byId = <T,>(items: T[], key: (item: T) => string): Record<string, T> =>
 
 /** Call after Amplify.configure(). */
 export function createAmplifyRepository(): Repository {
-  const { models, mutations, subscriptions: customSubscriptions } = generateClient<Schema>();
+  const { models, queries, mutations, subscriptions: customSubscriptions } = generateClient<Schema>();
+
+  // Saving leaves out an item's sold out flag and a table's QR token, which other
+  // screens change, so an editor holding an older copy cannot undo them.
+  const applyChange = async (change: CatalogChange): Promise<unknown> => {
+    switch (change.type) {
+      case 'category/save': {
+        const { id, name, sortOrder } = change.category;
+        const input = { id, name, sortOrder };
+        return unwrap(
+          change.isNew ? await models.MenuCategory.create(input) : await models.MenuCategory.update(input),
+        );
+      }
+      case 'category/delete':
+        return unwrap(await models.MenuCategory.delete({ id: change.id }));
+      case 'item/save': {
+        const { id, categoryId, name, price, sortOrder, optionGroups } = change.item;
+        const input = { id, categoryId, name, price, sortOrder, optionGroups };
+        return unwrap(
+          change.isNew ? await models.MenuItem.create(input) : await models.MenuItem.update(input),
+        );
+      }
+      case 'item/delete':
+        return unwrap(await models.MenuItem.delete({ id: change.id }));
+      case 'table/save': {
+        const { id, name, seats, sortOrder, qrToken } = change.table;
+        return unwrap(
+          change.isNew
+            ? await models.DiningTable.create({ id, name, seats, sortOrder, qrToken: qrToken ?? crypto.randomUUID() })
+            : await models.DiningTable.update({ id, name, seats, sortOrder }),
+        );
+      }
+      case 'table/delete':
+        return unwrap(await models.DiningTable.delete({ id: change.id }));
+    }
+  };
+
+  const staff: StaffDirectory = {
+    async list() {
+      return unwrap(await queries.listStaff()) ?? [];
+    },
+    async invite(email, role) {
+      unwrap(await mutations.inviteStaff({ email, role }));
+    },
+    async resendInvite(email) {
+      unwrap(await mutations.resendStaffInvite({ email }));
+    },
+    async setRole(username, role) {
+      unwrap(await mutations.setStaffRole({ username, role }));
+    },
+    async setEnabled(username, enabled) {
+      unwrap(await mutations.setStaffEnabled({ username, enabled }));
+    },
+  };
 
   return {
     mode: 'amplify',
+    staff,
 
     async getCatalog(): Promise<Catalog> {
       const [tables, categories, items] = await Promise.all([
@@ -119,8 +174,12 @@ export function createAmplifyRepository(): Repository {
       );
     },
 
+    async changeCatalog(changes) {
+      await Promise.all(changes.map(applyChange));
+    },
+
     async setItemAvailable(itemId, available) {
-      unwrap(await models.MenuItem.update({ id: itemId, available }));
+      unwrap(await mutations.setItemAvailable({ itemId, available }));
     },
 
     async rotateTableToken(tableId) {

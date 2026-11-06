@@ -1,15 +1,20 @@
 import { createContext, useCallback, useContext, useState } from 'react';
+import type { StaffDirectory } from './data/repository';
 import type { LiveStatus } from './data/useLiveState';
 import {
   ORDER_REJECTION_MESSAGE,
   OrderRejectedError,
+  STAFF_REJECTION_MESSAGE,
+  StaffRejectedError,
   type Catalog,
+  type CatalogChange,
   type GuestCheck,
   type KitchenTicket,
   type LineVoid,
   type Order,
   type OrderItemInput,
   type PaymentMethod,
+  type StaffRole,
   type TicketLine,
   type TicketStatus,
 } from './domain';
@@ -30,6 +35,7 @@ export interface Draft {
 
 export interface Actions {
   seedCatalog(): Promise<void>;
+  changeCatalog(changes: CatalogChange[]): Promise<void>;
   setItemAvailable(itemId: string, available: boolean): Promise<void>;
   rotateTableToken(tableId: string): Promise<void>;
   openTable(input: { tableId: string; tableName: string; guestCount: number }): Promise<GuestCheck>;
@@ -46,6 +52,10 @@ export interface Actions {
 }
 
 export interface AppContextValue {
+  /** Shows or hides managers' screens. The server enforces it separately. */
+  role: StaffRole;
+  /** Missing in demo mode. */
+  staff?: StaffDirectory;
   catalog: Catalog;
   catalogState: 'loading' | 'ready' | 'failed';
   live: LiveStatus;
@@ -65,23 +75,30 @@ export function useApp(): AppContextValue {
   return value;
 }
 
-/** Runs a write, reports failure to the user, and blocks repeat taps meanwhile. */
+/**
+ * Runs a write, reports failure to the user, and blocks repeat taps meanwhile.
+ * Resolves to whether it succeeded.
+ */
 export function useAction() {
   const { notify } = useApp();
   const [busy, setBusy] = useState(false);
   const run = useCallback(
-    async (action: () => Promise<void>, failureMessage: string) => {
+    async (action: () => Promise<void>, failureMessage: string): Promise<boolean> => {
       setBusy(true);
       try {
         await action();
+        return true;
       } catch (error) {
         console.error(failureMessage, error);
         notify(
           error instanceof OrderRejectedError
             ? ORDER_REJECTION_MESSAGE[error.code]
-            : `${failureMessage}，請再試一次`,
+            : error instanceof StaffRejectedError
+              ? STAFF_REJECTION_MESSAGE[error.code]
+              : `${failureMessage}，請再試一次`,
           true,
         );
+        return false;
       } finally {
         setBusy(false);
       }

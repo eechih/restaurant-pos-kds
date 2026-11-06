@@ -27,13 +27,14 @@ npx ampx sandbox
 
 這會建立一套個人開發用的 Cognito、AppSync 和 DynamoDB，並產生 `amplify_outputs.json`。App 偵測到這個檔案就會改用 AWS。
 
-公開註冊已關閉，第一個帳號要由管理員建立。User Pool ID 在 `amplify_outputs.json` 的 `auth.user_pool_id`：
+公開註冊已關閉，第一個帳號要由管理員建立，並加入店長群組。User Pool ID 在 `amplify_outputs.json` 的 `auth.user_pool_id`：
 
 ```bash
 aws cognito-idp admin-create-user --user-pool-id <USER_POOL_ID> --username <EMAIL>
+aws cognito-idp admin-add-user-to-group --user-pool-id <USER_POOL_ID> --username <EMAIL> --group-name MANAGER
 ```
 
-Cognito 會寄送臨時密碼，第一次登入時要變更。
+Cognito 會寄送臨時密碼，第一次登入時要變更。之後的帳號由店長在「店務設定 → 員工帳號」邀請，不需要再用指令。
 
 > **注意：** 在 sandbox 新增或變更某張表的索引時，Amplify 會**重建那張表並清空資料**，而且預設沒有備份。正式部署不會這樣。
 
@@ -49,7 +50,7 @@ npx ampx sandbox delete
 
 | 模型 | 用途 |
 |---|---|
-| `DiningTable`、`MenuCategory`、`MenuItem` | 桌位與菜單，客製選項內嵌在品項裡 |
+| `DiningTable`、`MenuCategory`、`MenuItem` | 桌位與菜單，客製選項內嵌在品項裡；只有店長能修改，員工只能切換售完 |
 | `Seating` | 目前哪一桌有人；以 `tableId` 為主鍵 |
 | `GuestCheck` | 這桌這次用餐，可以有多筆訂單 |
 | `Order` | 一次下單，各自付款；金額由伺服器計算，只由後端函式寫入 |
@@ -83,10 +84,9 @@ npm run typecheck
 
 正式上線前要處理：
 
-- **菜單價格：** 任何登入的員工都能修改菜單和價格。
+- **權限收回有延遲：** 取消店長或停用帳號後，對方會在所有裝置被登出，但已開啟的畫面在登入憑證到期前（最長 1 小時）仍能操作。
 - **退款：** 取消已付款的品項時，員工和顧客都會看到提示，但要手動退款，也沒有留下退款紀錄。
 - **濫用防護：** 每桌最多 10 筆未付款訂單，但沒有依來源限制請求頻率。公開上線前應再加 AWS WAF。
-- **權限：** 所有登入帳號權限相同，沒有店長、外場、廚房之分。
 - **時間以裝置時鐘為準：** KDS 的等待時間會受各裝置時鐘誤差影響。
 - **取消只能取消整筆品項：** 要從 3 份改成 2 份時，需取消後重新點餐。
 - **未儲存的點餐：** 尚未送廚的品項只存在該裝置的記憶體，重新整理就會消失。

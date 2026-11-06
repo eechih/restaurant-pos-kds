@@ -1,4 +1,4 @@
-import { useNavigate } from '@tanstack/react-router';
+import { Link, useNavigate } from '@tanstack/react-router';
 import { useState } from 'react';
 import { useAction, useApp } from '../appContext';
 import { useNow } from '../ui/useNow';
@@ -26,22 +26,24 @@ function useGoToTable() {
 }
 
 export function FloorView() {
-  const { catalog, live, actions } = useApp();
+  const { catalog, live, actions, role } = useApp();
   const { busy, run } = useAction();
   const [opening, setOpening] = useState<DiningTable>();
 
   if (catalog.tables.length === 0) {
-    return (
+    return role === 'MANAGER' ? (
       <div className="seed-prompt">
         <h1>還沒有桌位和菜單</h1>
-        <p>匯入 8 張桌位和 12 道範例菜色，就可以開始點餐。</p>
-        <button
-          className="button button-primary"
-          disabled={busy}
-          onClick={() => run(actions.seedCatalog, '匯入範例資料失敗')}
-        >
+        <p>到店務設定建立自己的桌位和菜單，或先匯入 8 張桌位和 12 道範例菜色試用。</p>
+        <Link to="/pos/settings/tables" className="button button-primary">前往店務設定</Link>
+        <button className="button" disabled={busy} onClick={() => run(actions.seedCatalog, '匯入範例資料失敗')}>
           {busy ? '匯入中…' : '匯入範例資料'}
         </button>
+      </div>
+    ) : (
+      <div className="seed-prompt">
+        <h1>還沒有桌位和菜單</h1>
+        <p>請店長登入，在店務設定建立桌位和菜單。</p>
       </div>
     );
   }

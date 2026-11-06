@@ -371,3 +371,140 @@ export const formatMoney = (amount: number) => `NT$${amount.toLocaleString('en-U
 
 export const elapsedMinutes = (fromIso: string, now: number) =>
   Math.max(0, Math.floor((now - new Date(fromIso).getTime()) / 60_000));
+
+/** A manager's edit to the menu or tables. Applied together, so a reorder is one change. */
+export type CatalogChange =
+  | { type: 'category/save'; category: MenuCategory; isNew: boolean }
+  | { type: 'category/delete'; id: string }
+  | { type: 'item/save'; item: MenuItem; isNew: boolean }
+  | { type: 'item/delete'; id: string }
+  | { type: 'table/save'; table: DiningTable; isNew: boolean }
+  | { type: 'table/delete'; id: string };
+
+const upsert = <T extends { id: string }>(records: T[], record: T) =>
+  records.some((candidate) => candidate.id === record.id)
+    ? records.map((candidate) => (candidate.id === record.id ? record : candidate))
+    : [...records, record];
+
+/**
+ * Saving keeps what other screens own: an item's sold out flag and a table's QR
+ * token. An editor may hold an older copy of either.
+ */
+export function applyCatalogChange(catalog: Catalog, change: CatalogChange): Catalog {
+  const bySort = <T extends { sortOrder: number }>(records: T[]) =>
+    [...records].sort((a, b) => a.sortOrder - b.sortOrder);
+  switch (change.type) {
+    case 'category/save':
+      return { ...catalog, categories: bySort(upsert(catalog.categories, change.category)) };
+    case 'category/delete':
+      return { ...catalog, categories: catalog.categories.filter((c) => c.id !== change.id) };
+    case 'item/save': {
+      const current = catalog.items.find((item) => item.id === change.item.id);
+      const item = { ...change.item, available: change.isNew ? null : current?.available };
+      return { ...catalog, items: bySort(upsert(catalog.items, item)) };
+    }
+    case 'item/delete':
+      return { ...catalog, items: catalog.items.filter((item) => item.id !== change.id) };
+    case 'table/save': {
+      const current = catalog.tables.find((table) => table.id === change.table.id);
+      const table = { ...change.table, qrToken: change.isNew ? change.table.qrToken : current?.qrToken };
+      return { ...catalog, tables: bySort(upsert(catalog.tables, table)) };
+    }
+    case 'table/delete':
+      return { ...catalog, tables: catalog.tables.filter((table) => table.id !== change.id) };
+  }
+}
+
+export const MAX_NAME_LENGTH = 40;
+export const MAX_PRICE = 100_000;
+
+const isPrice = (value: number, min: number) =>
+  Number.isInteger(value) && value >= min && value <= MAX_PRICE;
+
+/** What stops an item being saved, worded for the manager editing it. */
+export function menuItemProblems(item: MenuItem): string[] {
+  const problems: string[] = [];
+  const badName = (name: string) => !name.trim() || name.trim().length > MAX_NAME_LENGTH;
+  if (badName(item.name)) problems.push(`品名必填，最多 ${MAX_NAME_LENGTH} 字`);
+  if (!isPrice(item.price, 0)) problems.push(`價格要是 0 到 ${MAX_PRICE} 的整數`);
+  item.optionGroups.forEach((group, index) => {
+    const label = group.name.trim() || `第 ${index + 1} 組選項`;
+    if (badName(group.name)) problems.push(`第 ${index + 1} 組選項需要名稱`);
+    if (group.choices.length === 0) problems.push(`「${label}」至少要有一個選項`);
+    if (group.choices.some((choice) => badName(choice.name))) {
+      problems.push(`「${label}」的每個選項都需要名稱`);
+    }
+    if (group.choices.some((choice) => !isPrice(Math.abs(choice.priceDelta), 0))) {
+      problems.push(`「${label}」的加價要是整數`);
+    }
+    if (new Set(group.choices.map((choice) => choice.name.trim())).size < group.choices.length) {
+      problems.push(`「${label}」有重複的選項`);
+    }
+  });
+  return problems;
+}
+
+/** A sort order after every existing one. */
+export const nextSortOrder = (records: { sortOrder: number }[]) =>
+  records.reduce((max, record) => Math.max(max, record.sortOrder), 0) + 10;
+
+/**
+ * Swaps a record with its neighbour in a list sorted by sort order. Returns the
+ * records to save, or nothing at either end.
+ */
+export function moveBy<T extends { id: string; sortOrder: number }>(
+  records: T[],
+  id: string,
+  offset: -1 | 1,
+): T[] | undefined {
+  const index = records.findIndex((record) => record.id === id);
+  const record = records[index];
+  const neighbour = records[index + offset];
+  if (!record || !neighbour) return undefined;
+  // Equal sort orders would not swap, so the moved record steps past instead.
+  if (record.sortOrder === neighbour.sortOrder) {
+    return [{ ...record, sortOrder: record.sortOrder + offset }];
+  }
+  return [
+    { ...record, sortOrder: neighbour.sortOrder },
+    { ...neighbour, sortOrder: record.sortOrder },
+  ];
+}
+
+/** The Cognito group whose members may edit the menu, tables and staff accounts. */
+export const MANAGER_GROUP = 'MANAGER';
+export type StaffRole = 'MANAGER' | 'STAFF';
+
+export type StaffRejection =
+  | 'STAFF_EXISTS'
+  | 'INVALID_EMAIL'
+  | 'STAFF_NOT_FOUND'
+  | 'ALREADY_SIGNED_IN'
+  | 'EMAIL_FAILED'
+  | 'CANNOT_CHANGE_SELF';
+
+export const STAFF_REJECTION_MESSAGE: Record<StaffRejection, string> = {
+  STAFF_EXISTS: '這個 Email 已經有帳號',
+  INVALID_EMAIL: 'Email 格式不正確',
+  STAFF_NOT_FOUND: '找不到這個帳號，請重新整理',
+  ALREADY_SIGNED_IN: '這個帳號已經登入過，不需要重寄邀請。忘記密碼可在登入畫面重設',
+  EMAIL_FAILED: '邀請信寄送失敗，可能是 Email 有誤或今天寄送已達上限，請稍後再試',
+  CANNOT_CHANGE_SELF: '不能變更自己的角色，也不能停用自己',
+};
+
+/** Thrown when an account change is refused. Its message is the code. */
+export class StaffRejectedError extends Error {
+  constructor(readonly code: StaffRejection) {
+    super(code);
+  }
+}
+
+export interface StaffMember {
+  username: string;
+  email: string;
+  role: StaffRole;
+  enabled: boolean;
+  /** True until they sign in and replace the temporary password. */
+  invited: boolean;
+  isSelf: boolean;
+}

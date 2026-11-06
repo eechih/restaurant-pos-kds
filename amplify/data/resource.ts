@@ -1,11 +1,14 @@
 import { a, defineData, type ClientSchema } from '@aws-amplify/backend';
+import { MANAGER_GROUP } from '../../src/domain';
 import { orders } from '../functions/orders/resource';
+import { staffAccounts } from '../functions/staff/resource';
 
 const schema = a
   .schema({
     TicketStatus: a.enum(['NEW', 'PREPARING', 'READY', 'SERVED']),
     OrderStatus: a.enum(['PENDING', 'PAID', 'EXPIRED']),
     PaymentMethod: a.enum(['CASH', 'CARD']),
+    StaffRole: a.enum(['MANAGER', 'STAFF']),
 
     OptionChoice: a.customType({
       id: a.id().required(),
@@ -43,7 +46,8 @@ const schema = a
         sortOrder: a.integer().required(),
         qrToken: a.string(),
       })
-      .secondaryIndexes((index) => [index('qrToken').name('byQrToken')]),
+      .secondaryIndexes((index) => [index('qrToken').name('byQrToken')])
+      .authorization((allow) => [allow.group(MANAGER_GROUP), allow.authenticated().to(['read'])]),
     MenuCategory: a
       .model({
         name: a.string().required(),
@@ -52,7 +56,8 @@ const schema = a
       .authorization((allow) => [
         allow.guest().to(['read']),
         allow.authenticated('identityPool').to(['read']),
-        allow.authenticated(),
+        allow.group(MANAGER_GROUP),
+        allow.authenticated().to(['read']),
       ]),
     MenuItem: a
       .model({
@@ -61,12 +66,14 @@ const schema = a
         price: a.integer().required(),
         sortOrder: a.integer().required(),
         optionGroups: a.ref('OptionGroup').required().array().required(),
+        // Staff change this through setItemAvailable.
         available: a.boolean(),
       })
       .authorization((allow) => [
         allow.guest().to(['read']),
         allow.authenticated('identityPool').to(['read']),
-        allow.authenticated(),
+        allow.group(MANAGER_GROUP),
+        allow.authenticated().to(['read']),
       ]),
 
     // Keyed by table so that creating a second seating for an occupied table
@@ -194,6 +201,53 @@ const schema = a
       ticket: a.ref('TicketRecord').required(),
       check: a.ref('CheckRecord'),
     }),
+
+    StaffMember: a.customType({
+      username: a.string().required(),
+      email: a.string().required(),
+      role: a.ref('StaffRole').required(),
+      enabled: a.boolean().required(),
+      invited: a.boolean().required(),
+      isSelf: a.boolean().required(),
+    }),
+
+    setItemAvailable: a
+      .mutation()
+      .arguments({ itemId: a.id().required(), available: a.boolean().required() })
+      .returns(a.boolean())
+      .authorization((allow) => [allow.authenticated()])
+      .handler(a.handler.custom({ dataSource: a.ref('MenuItem'), entry: './setItemAvailable.js' })),
+
+    listStaff: a
+      .query()
+      .returns(a.ref('StaffMember').required().array().required())
+      .authorization((allow) => [allow.group(MANAGER_GROUP)])
+      .handler(a.handler.function(staffAccounts)),
+    inviteStaff: a
+      .mutation()
+      .arguments({ email: a.string().required(), role: a.ref('StaffRole').required() })
+      .returns(a.boolean())
+      .authorization((allow) => [allow.group(MANAGER_GROUP)])
+      .handler(a.handler.function(staffAccounts)),
+    resendStaffInvite: a
+      .mutation()
+      // Cognito resends by the email, not the generated username.
+      .arguments({ email: a.string().required() })
+      .returns(a.boolean())
+      .authorization((allow) => [allow.group(MANAGER_GROUP)])
+      .handler(a.handler.function(staffAccounts)),
+    setStaffRole: a
+      .mutation()
+      .arguments({ username: a.string().required(), role: a.ref('StaffRole').required() })
+      .returns(a.boolean())
+      .authorization((allow) => [allow.group(MANAGER_GROUP)])
+      .handler(a.handler.function(staffAccounts)),
+    setStaffEnabled: a
+      .mutation()
+      .arguments({ username: a.string().required(), enabled: a.boolean().required() })
+      .returns(a.boolean())
+      .authorization((allow) => [allow.group(MANAGER_GROUP)])
+      .handler(a.handler.function(staffAccounts)),
 
     placeOrder: a
       .mutation()

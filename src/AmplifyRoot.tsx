@@ -1,10 +1,13 @@
 import { Authenticator } from '@aws-amplify/ui-react';
 import '@aws-amplify/ui-react/styles.css';
 import { Amplify } from 'aws-amplify';
+import { fetchAuthSession, signOut, type AuthSession } from 'aws-amplify/auth';
 import { I18n } from 'aws-amplify/utils';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { App } from './App';
 import { createAmplifyRepository } from './data/amplifyRepository';
+import type { Repository } from './data/repository';
+import { MANAGER_GROUP, type StaffRole } from './domain';
 
 I18n.putVocabularies({
   'zh-TW': {
@@ -29,6 +32,49 @@ I18n.putVocabularies({
 });
 I18n.setLanguage('zh-TW');
 
+const roleOf = (session: AuthSession): StaffRole => {
+  const groups = session.tokens?.accessToken.payload['cognito:groups'];
+  return Array.isArray(groups) && groups.includes(MANAGER_GROUP) ? 'MANAGER' : 'STAFF';
+};
+
+/**
+ * Starts from the stored session so the app opens at once, then renews it, so a
+ * role a manager just changed applies when the page is reloaded.
+ */
+function useRole(userId: string | undefined) {
+  const [role, setRole] = useState<StaffRole>();
+  useEffect(() => {
+    if (!userId) return;
+    let active = true;
+    const apply = (session: AuthSession) => {
+      if (active) setRole(roleOf(session));
+    };
+    void fetchAuthSession().then(apply, () => undefined);
+    // Offline fails here and keeps the stored session.
+    fetchAuthSession({ forceRefresh: true }).then((session) => {
+      // Amplify answers a revoked session, such as a disabled account or a
+      // removed manager, with no tokens rather than an error.
+      if (!session.tokens) void signOut();
+      else apply(session);
+    }, () => undefined);
+    return () => {
+      active = false;
+    };
+  }, [userId]);
+  return role;
+}
+
+function SignedIn({ repository, userId, userLabel, onSignOut }: {
+  repository: Repository;
+  userId?: string;
+  userLabel?: string;
+  onSignOut?: () => void;
+}) {
+  const role = useRole(userId);
+  if (!role) return <p className="empty-note page">載入中…</p>;
+  return <App repository={repository} role={role} userLabel={userLabel} onSignOut={onSignOut} />;
+}
+
 export function AmplifyRoot({ outputs }: { outputs: Record<string, unknown> }) {
   const [repository] = useState(() => {
     Amplify.configure(outputs);
@@ -38,8 +84,9 @@ export function AmplifyRoot({ outputs }: { outputs: Record<string, unknown> }) {
   return (
     <Authenticator hideSignUp>
       {({ signOut, user }) => (
-        <App
+        <SignedIn
           repository={repository}
+          userId={user?.userId}
           userLabel={user?.signInDetails?.loginId}
           onSignOut={signOut}
         />

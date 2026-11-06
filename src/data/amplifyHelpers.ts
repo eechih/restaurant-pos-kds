@@ -3,9 +3,12 @@ import {
   ConflictError,
   ORDER_REJECTION_MESSAGE,
   OrderRejectedError,
+  STAFF_REJECTION_MESSAGE,
+  StaffRejectedError,
   type MenuCategory,
   type MenuItem,
   type OrderRejection,
+  type StaffRejection,
 } from '../domain';
 
 export interface ModelResult<T> {
@@ -16,9 +19,11 @@ export interface ModelResult<T> {
 
 export function unwrap<T>({ data, errors }: ModelResult<T>): T {
   if (errors?.length) {
-    // The orders function reports a rejection by using its code as the message.
+    // The functions report a rejection by using its code as the message.
     const rejected = errors.find((error) => Object.hasOwn(ORDER_REJECTION_MESSAGE, error.message));
     if (rejected) throw new OrderRejectedError(rejected.message as OrderRejection);
+    const refused = errors.find((error) => Object.hasOwn(STAFF_REJECTION_MESSAGE, error.message));
+    if (refused) throw new StaffRejectedError(refused.message as StaffRejection);
     if (errors.some((error) => error.errorType?.includes('ConditionalCheckFailed'))) {
       throw new ConflictError(errors[0].message);
     }
